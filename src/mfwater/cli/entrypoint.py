@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from ..algo_chemical_model import chemical_model_post, chemical_model_prep
 from ..argparser import parser
 
 
@@ -26,6 +27,9 @@ def console_entry_point(argv: Sequence[str] | None = None) -> int:
     """
     args = parser().parse_args(argv)
 
-    print(args)
+    if args.algorithm == "chemmodel-prep":
+        return chemical_model_prep(args)
+    elif args.algorithm == "chemmodel-post":
+        return chemical_model_post(args)
 
     return 0

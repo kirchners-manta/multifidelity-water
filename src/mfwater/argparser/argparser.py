@@ -298,6 +298,21 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         help="R|Show this help message and exit.",
     )
     p.add_argument(
+        "-a",
+        type=str,
+        choices=["chemmodel-prep", "chemmodel-post"],
+        dest="algorithm",
+        help="R|Which algorithm to execute.",
+    )
+    p.add_argument(
+        "-i",
+        type=is_file,
+        dest="input",
+        metavar="INPUT_FILE",
+        default=None,
+        help="R|Input file in HDF5 format.",
+    )
+    p.add_argument(
         "--version",
         action="version",
         version=f"{name} {__version__}",
