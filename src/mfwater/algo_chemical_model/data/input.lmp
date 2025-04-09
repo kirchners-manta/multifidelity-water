@@ -1,0 +1,82 @@
+# created by fftool
+
+# System settings
+units real
+boundary p p p  # Periodic boundary conditions
+
+# definition of atoms, bonds, angles
+atom_style full
+bond_style harmonic
+angle_style harmonic
+
+# definition of pair potentials
+special_bonds lj/coul 0.0 0.0 0.5
+pair_style lj/cut/coul/long 10.0 10.0
+pair_modify mix geometric tail yes
+kspace_style pppm 1.0e-5
+
+# read data file
+read_data data.lmp
+
+# definition of LJ parameters
+pair_coeff    1    1     0.000000     0.000000  # Hw Hw
+pair_coeff    2    2     VAR_EPS      VAR_SIG   # Ow Ow
+
+############################################
+
+# remove energy hotspots
+minimize 1.0e-4 1.0e-6 100 1000
+reset_timestep 0
+
+# constrain water bonds and angles
+fix fSHAKE all shake 0.0001 20 0 b 1 a 1
+
+# remove Center of Mass movement every 100 steps
+fix fMOM all momentum 100 linear 1 1 1
+
+# define the neighbor list
+neighbor 2.0 bin
+
+# IMPORTANT: timestep and temperature and pressure
+timestep 1.0
+variable vTK equal 298.15
+variable vPBAR equal 1.0
+
+# randomize velocities
+velocity all create ${vTK} 12345
+
+# thermostat (solving the ODE)
+fix fTHERMO all nvt temp ${vTK} ${vTK} 100
+
+# print settings
+thermo 1000
+thermo_style custom step etotal ke pe temp press vol density
+# trajectory output
+dump dEQUI all custom 1000 equi.lammpstrj id element xu yu zu
+dump_modify dEQUI element H O sort id
+
+# equilibration
+# 1 ns
+run 1000000
+# write data file
+write_data data.after_eq.lmp
+
+# clean up
+undump dEQUI
+
+# production
+# 2 ns
+dump dPROD all custom 1000 prod.lammpstrj id element xu yu zu
+dump_modify dPROD element H O sort id
+run 2000000
+
+# write data file
+write_data data.after_prod.lmp
+
+# clean up
+undump dPROD
+unfix fTHERMO
+unfix fMOM
+unfix fSHAKE
+
+
