@@ -195,7 +195,7 @@ def setup_lammps_input(input: str | Path) -> None:
                 )
 
                 # insert random seed command in the packmol input file that was generated above
-                with open(sim_dir / "pack.inp", "r", encoding="utf-8") as p:
+                with open(sim_dir / "pack.inp", encoding="utf-8") as p:
                     packinp = p.readlines()
                     for k, line in enumerate(packinp):
                         if "inside box" in line:
@@ -239,7 +239,7 @@ def setup_lammps_input(input: str | Path) -> None:
                     check=True,
                     capture_output=True,
                 )
-                with open(sim_dir / "input.lmp", "r", encoding="utf-8") as lmp:
+                with open(sim_dir / "input.lmp", encoding="utf-8") as lmp:
                     lmpinp = lmp.readlines()
                     for k, line in enumerate(lmpinp):
                         if "VAR_EPS" in line:
