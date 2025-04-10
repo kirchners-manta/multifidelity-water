@@ -91,6 +91,74 @@ def chemical_model_post(args: argparse.Namespace) -> int:
         The exit code of the program, by default 0.
     """
 
+    # check input file
+    if args.input is None:
+        raise RuntimeError("No input file given.")
+    elif args.input.exists() is False:
+        raise FileNotFoundError(f"Input file {args.input} does not exist.")
+
+    # check for the model directory
+    if not (Path.cwd() / "models").exists():
+        raise RuntimeError("No models directory found. Run chemical_model_prep first.")
+
+    # read information on models from the input file
+    with h5py.File(args.input, "r+") as f:
+
+        for i, mod in enumerate(f["models"].keys()):
+
+            comptimes = []
+            diffusion_coeffs = []
+            for j in range(1, f["models"][mod].attrs["n_evals"] + 1):
+                # read msdiff output to get the diffusion coefficient
+                msdpath = (
+                    Path.cwd() / "models" / mod / f"eval_{j}" / "msd" / "msdiff.out"
+                )
+                with open(msdpath, encoding="utf-8") as msd:
+                    msdlog = msd.readlines()
+                    diff = float(msdlog[-1].split(",")[0].strip())
+                    diffusion_coeffs.append(diff)
+
+                # read LAMMPS output
+                logpath = (
+                    Path.cwd() / "models" / mod / f"eval_{j}" / "simout" / "log.lammps"
+                )
+                with open(logpath, encoding="utf-8") as lmp:
+                    lmplog = lmp.readlines()
+
+                    # check if the LJ parameters actually used are the same as the ones in the input file
+                    for line in lmplog:
+                        if "pair_coeff    2    2" in line:
+                            eps = float(line.split()[3])
+                            sig = float(line.split()[4])
+                            if (
+                                eps != f["models"][mod]["lj_params"][0][j]
+                                or sig != f["models"][mod]["lj_params"][1][j]
+                            ):
+                                raise ValueError(
+                                    f"Error in model {mod} evaluation {j}: the LJ parameters used in the simulation are not the same as the ones in the input file."
+                                )
+                            break
+
+                    # to get the cost (time) of the simulation, read lines reversely
+                    for line in lmplog[::-1]:
+                        if "Total wall time:" in line:
+                            # get the time of the simulation in seconds
+                            time = sum(
+                                x * int(t)
+                                for x, t in zip(
+                                    [3600, 60, 1], line.split()[-1].split(":")
+                                )
+                            )
+                            break
+
+                comptimes.append(time)
+
+            # add the computation time to the model
+            f["models"][mod].attrs["computation_time"] = np.mean(comptimes)
+            # add the diffusion coefficient to the model
+            f["models"][mod].create_dataset(
+                "diffusion_coeff", data=np.array(diffusion_coeffs, dtype=np.float32)
+            )
     return 0
 
 
@@ -114,13 +182,13 @@ def sampl_lj_params(ar: NDArray[np.float32]) -> NDArray[np.float32]:
     eps_opc3 = 0.68369 * KJ2KCAL  # kcal/mol
 
     # create an array of size n_models x n_evals with random samples
-    # from a Gaussian distribution with mean sigma/epsilon and standard deviation 1/6 * sigma/epsilon
+    # from a Gaussian distribution with mean epsilon/sigma and standard deviation 1/6 * epsilon/sigma
     # this ensures that 99.7% of the samples are within +-1/2 of the values of the standard LJ parameter
 
-    # the first row will contain the random samples for the sigma parameter
-    ar[0, :] = np.random.normal(loc=sig_opc3, scale=sig_opc3 / 6, size=ar[0, :].shape)
-    # the second row will contain the random samples for the epsilon parameter
-    ar[1, :] = np.random.normal(loc=eps_opc3, scale=eps_opc3 / 6, size=ar[1, :].shape)
+    # the first row will contain the random samples for the epsilon parameter
+    ar[0, :] = np.random.normal(loc=eps_opc3, scale=eps_opc3 / 6, size=ar[0, :].shape)
+    # the second row will contain the random samples for the sigma parameter
+    ar[1, :] = np.random.normal(loc=sig_opc3, scale=sig_opc3 / 6, size=ar[1, :].shape)
 
     return ar
 
@@ -248,7 +316,7 @@ def setup_lammps_input(input: str | Path) -> None:
                     for k, line in enumerate(lmpinp):
                         if "VAR_EPS" in line:
                             lmpinp[k] = (
-                                f"pair_coeff    2    2     {f['models'][mod]['lj_params'][1][j]:.6f}     {f['models'][mod]['lj_params'][0][j]:.6f}  # Ow-Ow\n"
+                                f"pair_coeff    2    2     {f['models'][mod]['lj_params'][0][j]:.6f}     {f['models'][mod]['lj_params'][1][j]:.6f}  # Ow-Ow\n"
                             )
                         if "velocity all create" in line:
                             lmpinp[k] = (

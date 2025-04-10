@@ -28,7 +28,7 @@ As of now, the available algorithms are:
 - `chemmod-post`: Postprocessing of the chemical model (i.e., calculating the MSD and the diffusion coefficient)
 
 The program operates on an HDF5 file containing information on the models.
-The current file structure is
+The current file structure is (omitting attributes):
 ```
 models
     model_1
@@ -41,8 +41,27 @@ where `models` and `model_{n}` are groups and `lj_params` is a dataset containin
 The `models` group has the attribute `n_models` and for each `model_{n}` group there are attributes `n_molecules` and `n_evals` (the number of molecules and evaluations for the model).
 The `lj_params` dataset is of dimensions `2, n_evals` and contains the Lennard-Jones parameters, $\sigma$ and $\epsilon$, for the model and each evaluation.
 
-**Attention:** `lj_params` is obtained by adding a Gaussian noise to the original values, taken from the [OPC3](https://doi.org/10.1063/1.4960175) force field.
+`lj_params` is obtained by adding a Gaussian noise to the original values, taken from the [OPC3](https://doi.org/10.1063/1.4960175) force field.
 The Gaussian was chosen to be centered at the original values with a standard deviation of 1/6 of the original value, to make sure that 99.7% of the values are in the range of 0.5 to 1.5 times the original value.
+
+When exectuting the `chemmod-prep` algorithm, the program will generate a default .hdf5 input file if not given any input file.
+It will always create input files for LAMMPS for each model and evaluation.
+
+Upon executing the `chemmod-post` algorithm, the program will look for the output files of LAMMPS and msdiff in the respective folders of the models and evaluations.
+For each model, it adds a dataset `diffusion_coeff` to the model group, containing the diffusion coefficient (in $10^{-12}\,\text{m}^2\,\text{s}^{-1}$) for each evaluation.
+Additionally, each model will be given an attibute `computation_time` with the averaged computation time (in s) of the evaluations.
+Afterwards, the input file will have the following structure (omitting attributes):
+```
+models
+    model_1
+    model_1/lj_params
+    model_1/diffusion_coeff
+    model_2
+    model_2/lj_params
+    model_2/diffusion_coeff
+...
+```
+The program also checks whether the LJ parameters given in the input file are identical to the ones used in the LAMMPS simulations (and throws an error if not).
 
 ## Implementation hints
 @CodingAllan, to implement your algorithms, I recommend following the structure that I used [here](./src/mfwater/algo_chemical_model/).
@@ -54,3 +73,5 @@ If you find something in my code that you don't understand, please let me know a
 
 ## Notes
 The generation of input files for LAMMPS involves external software, namely [fftool](https://github.com/paduagroup/fftool) and [packmol](https://m3g.github.io/packmol/).
+After completion of the MD simulation, the diffusion coefficient of water is calculated externally, using [TRAVIS](http://www.travis-analyzer.de/) and [msdiff](https://github.com/kirchners-manta/msdiff).
+For the sake of simplicity, the execution of these programs is not included in the code.
