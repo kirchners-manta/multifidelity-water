@@ -153,10 +153,13 @@ def setup_lammps_input(input: str | Path) -> None:
     head_dir = Path.cwd() / "models"
     head_dir.mkdir(parents=False, exist_ok=True)
 
+    # number of cpus to use for each model
+    n_cpus = {16: 1, 32: 1, 64: 2, 128: 2, 256: 2, 512: 4, 1024: 6, 2048: 8}
+
     with h5py.File(input, "r") as f:
 
         # iterate over the models
-        for i, mod in enumerate(f["models"].keys()):
+        for _, mod in enumerate(f["models"].keys()):
 
             # get the number of molecules and corresponding box size
             n = f["models"][mod].attrs["n_molecules"]
@@ -171,7 +174,8 @@ def setup_lammps_input(input: str | Path) -> None:
 
             # create a subdirectory for each evaluation
             for j in range(1, n_evals + 1):
-                #  for j in range(1, 4):
+                # debug
+                # for j in range(1, 4):
 
                 eval_dir = model_dir / f"eval_{j}"
                 eval_dir.mkdir(parents=False, exist_ok=True)
@@ -253,6 +257,26 @@ def setup_lammps_input(input: str | Path) -> None:
                             break
                     with open(sim_dir / "input.lmp", "w", encoding="utf-8") as lmp:
                         lmp.writelines(lmpinp)
+
+                # copy the runscript to the model directory and adjust the simulation parameters
+                subprocess.run(
+                    f"cp {data_dir}/run-lammps-marvin.sh {sim_dir}",
+                    shell=True,
+                    check=True,
+                    capture_output=True,
+                )
+                with open(sim_dir / "run-lammps-marvin.sh", encoding="utf-8") as rsh:
+                    rshinp = rsh.readlines()
+                    for k, line in enumerate(rshinp):
+                        if "N_CPU" in line:
+                            rshinp[k] = f"#SBATCH --ntasks={n_cpus[n]}\n"
+                        if "JOB_NAME" in line:
+                            rshinp[k] = f"#SBATCH --job-name={mod}_{n}_{j}\n"
+                            break
+                    with open(
+                        sim_dir / "run-lammps-marvin.sh", "w", encoding="utf-8"
+                    ) as rsh:
+                        rsh.writelines(rshinp)
 
 
 def calc_box_size(n: int, rho: float = 0.997, m: float = 18.01528) -> float:
