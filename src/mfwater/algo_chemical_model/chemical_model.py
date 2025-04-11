@@ -19,8 +19,7 @@ NA = 6.022e23  # atoms/mol
 
 
 def chemical_model_prep(args: argparse.Namespace) -> int:
-    """
-    Prepare the chemical model for the MFWater project.
+    """Prepare the chemical model for the MFWater project.
 
     Parameters
     ----------
@@ -30,37 +29,23 @@ def chemical_model_prep(args: argparse.Namespace) -> int:
     Returns
     -------
     int
-        The exit code of the program, by default 0.
+        The exit code of the function, by default 0.
     """
 
-    # if no input file is given, create a default one
+    # check input file
     if args.input is None:
-
-        input_file = Path.cwd() / "default_input.hdf5"
-
-        with h5py.File(input_file, "w") as f:
-
-            # create a group for the models with an attribute being the number of models
-            models = f.create_group("models")
-            models.attrs["n_models"] = 8
-
-            # create a subroup for each model
-            # add the number of model evaluations and the number of molecules
-            for i in range(1, models.attrs["n_models"] + 1):
-                model = models.create_group(f"model_{i}")
-                model.attrs["n_evals"] = 100
-                model.attrs["n_molecules"] = 2 ** (models.attrs["n_models"] + 4 - i)
-
-        args.input = input_file
+        raise RuntimeError("No input file given.")
+    elif Path(args.input).exists() is False:
+        raise FileNotFoundError(f"Input file {args.input} does not exist.")
 
     # work with the given or created input file
     with h5py.File(args.input, "r+") as f:
 
         # iterate over the models
-        for i, mod in enumerate(f["models"].keys()):
+        for _, mod in enumerate(f["models"].keys()):
 
             # add datasets of the LJ parameters including Gaussian noise
-            params = f["models"][mod].create_dataset(
+            f["models"][mod].create_dataset(
                 "lj_params",
                 data=sampl_lj_params(
                     np.zeros((2, f["models"][mod].attrs["n_evals"]), dtype=np.float32)
@@ -104,7 +89,7 @@ def chemical_model_post(args: argparse.Namespace) -> int:
     # read information on models from the input file
     with h5py.File(args.input, "r+") as f:
 
-        for i, mod in enumerate(f["models"].keys()):
+        for _, mod in enumerate(f["models"].keys()):
 
             comptimes = []
             diffusion_coeffs = []
@@ -131,8 +116,8 @@ def chemical_model_post(args: argparse.Namespace) -> int:
                             eps = float(line.split()[3])
                             sig = float(line.split()[4])
                             if (
-                                eps != f["models"][mod]["lj_params"][0][j]
-                                or sig != f["models"][mod]["lj_params"][1][j]
+                                eps != f["models"][mod]["lj_params"][0][j - 1]
+                                or sig != f["models"][mod]["lj_params"][1][j - 1]
                             ):
                                 raise ValueError(
                                     f"Error in model {mod} evaluation {j}: the LJ parameters used in the simulation are not the same as the ones in the input file."
@@ -182,13 +167,14 @@ def sampl_lj_params(ar: NDArray[np.float32]) -> NDArray[np.float32]:
     eps_opc3 = 0.68369 * KJ2KCAL  # kcal/mol
 
     # create an array of size n_models x n_evals with random samples
-    # from a Gaussian distribution with mean epsilon/sigma and standard deviation 1/6 * epsilon/sigma
-    # this ensures that 99.7% of the samples are within +-1/2 of the values of the standard LJ parameter
+    # from a Gaussian distribution with mean epsilon/sigma and standard deviation of 1/6 * epsilon  and 1/30 * sigma
+    # for epsilon this ensures that 99.7% of the samples are within +-1/2 of the values of the standard LJ parameter
+    # for sigma, the width of the gaussian is much smaller because small sigmas lead to exploding simulation boxes
 
     # the first row will contain the random samples for the epsilon parameter
     ar[0, :] = np.random.normal(loc=eps_opc3, scale=eps_opc3 / 6, size=ar[0, :].shape)
     # the second row will contain the random samples for the sigma parameter
-    ar[1, :] = np.random.normal(loc=sig_opc3, scale=sig_opc3 / 6, size=ar[1, :].shape)
+    ar[1, :] = np.random.normal(loc=sig_opc3, scale=sig_opc3 / 30, size=ar[1, :].shape)
 
     return ar
 
@@ -220,9 +206,6 @@ def setup_lammps_input(input: str | Path) -> None:
     # create a head directory for the calculations
     head_dir = Path.cwd() / "models"
     head_dir.mkdir(parents=False, exist_ok=True)
-
-    # number of cpus to use for each model
-    n_cpus = {16: 1, 32: 1, 64: 2, 128: 2, 256: 2, 512: 4, 1024: 6, 2048: 8}
 
     with h5py.File(input, "r") as f:
 
@@ -316,7 +299,7 @@ def setup_lammps_input(input: str | Path) -> None:
                     for k, line in enumerate(lmpinp):
                         if "VAR_EPS" in line:
                             lmpinp[k] = (
-                                f"pair_coeff    2    2     {f['models'][mod]['lj_params'][0][j]:.6f}     {f['models'][mod]['lj_params'][1][j]:.6f}  # Ow-Ow\n"
+                                f"pair_coeff    2    2     {f['models'][mod]['lj_params'][0][j-1]:.6f}     {f['models'][mod]['lj_params'][1][j-1]:.6f}  # Ow-Ow\n"
                             )
                         if "velocity all create" in line:
                             lmpinp[k] = (
@@ -337,7 +320,7 @@ def setup_lammps_input(input: str | Path) -> None:
                     rshinp = rsh.readlines()
                     for k, line in enumerate(rshinp):
                         if "N_CPU" in line:
-                            rshinp[k] = f"#SBATCH --ntasks={n_cpus[n]}\n"
+                            rshinp[k] = f"#SBATCH --ntasks={calc_cpus(n)}\n"
                         if "JOB_NAME" in line:
                             rshinp[k] = f"#SBATCH --job-name={mod}_{n}_{j}\n"
                             break
@@ -385,3 +368,34 @@ def inspect_hdf5(filename: str) -> None:
     """
 
     print(filename)
+
+
+def calc_cpus(n: int) -> int:
+    """
+    Calculate the number of CPUs to use for the simulation.
+
+    Parameters
+    ----------
+    n : int
+        Number of molecules in the box.
+
+    Returns
+    -------
+    int
+        The number of CPUs to use.
+    """
+    # get the number of CPUs to use for the simulation
+    n_cpus = {16: 1, 32: 1, 64: 2, 128: 2, 256: 2, 512: 4, 1024: 6, 2048: 8}
+
+    if n >= 2000:
+        cpus = 8
+    elif n >= 1000:
+        cpus = 6
+    elif n >= 500:
+        cpus = 4
+    elif n >= 100:
+        cpus = 2
+    else:
+        cpus = 1
+
+    return cpus

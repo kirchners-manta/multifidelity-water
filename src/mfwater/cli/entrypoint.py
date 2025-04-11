@@ -8,6 +8,7 @@ from collections.abc import Sequence
 
 from ..algo_chemical_model import chemical_model_post, chemical_model_prep
 from ..argparser import parser
+from ..input import build_default_input
 
 
 def console_entry_point(argv: Sequence[str] | None = None) -> int:
@@ -27,7 +28,9 @@ def console_entry_point(argv: Sequence[str] | None = None) -> int:
     """
     args = parser().parse_args(argv)
 
-    if args.algorithm == "chemmodel-prep":
+    if args.algorithm == "build":
+        return build_default_input(args)
+    elif args.algorithm == "chemmodel-prep":
         return chemical_model_prep(args)
     elif args.algorithm == "chemmodel-post":
         return chemical_model_post(args)

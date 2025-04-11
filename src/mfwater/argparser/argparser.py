@@ -300,7 +300,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
     p.add_argument(
         "-a",
         type=str,
-        choices=["chemmodel-prep", "chemmodel-post"],
+        choices=["build", "chemmodel-prep", "chemmodel-post"],
         dest="algorithm",
         help="R|Which algorithm to execute.",
     )
@@ -311,6 +311,40 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         metavar="INPUT_FILE",
         default=None,
         help="R|Input file in HDF5 format.",
+    )
+    p.add_argument(
+        "-o",
+        type=str,
+        dest="output",
+        metavar="OUTPUT_FILE",
+        default=None,
+        help="R|Output file in HDF5 format.",
+    )
+    p.add_argument(
+        "--models",
+        type=int,
+        dest="n_models",
+        default=8,
+        action=action_not_less_than(1),
+        help="R|Number of models to be used.",
+    )
+    p.add_argument(
+        "--molecules",
+        type=int,
+        dest="n_molecules",
+        default=None,
+        action=action_not_less_than(1),
+        help="R|Number of molecules per model. If more than 1 model, supply several values (space separated).",
+        nargs="+",
+    )
+    p.add_argument(
+        "--evals",
+        type=int,
+        dest="n_evals",
+        default=None,
+        action=action_not_less_than(1),
+        help="R|Number of evaluations per model. If more than 1 model, supply several values (space separated).",
+        nargs="+",
     )
     p.add_argument(
         "--version",
