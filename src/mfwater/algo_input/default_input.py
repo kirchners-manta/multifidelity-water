@@ -47,11 +47,15 @@ def build_default_input(args: argparse.Namespace) -> int:
         args.n_evals = [100 for _ in range(args.n_models)]
 
     # check if the input model specifications are valid
+    if type(args.n_molecules) is int:
+        args.n_molecules = [args.n_molecules]
     if len(args.n_molecules) != args.n_models:
         print(
             f"Number of molecules ({len(args.n_molecules)}) does not match number of models ({args.n_models})."
         )
         return 1
+    if type(args.n_evals) is int:
+        args.n_evals = [args.n_evals]
     if len(args.n_evals) != args.n_models:
         print(
             f"Number of evaluations ({len(args.n_evals)}) does not match number of models ({args.n_models})."
