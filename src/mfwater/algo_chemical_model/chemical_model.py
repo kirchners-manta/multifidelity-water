@@ -79,7 +79,7 @@ def chemical_model_post(args: argparse.Namespace) -> int:
     # check input file
     if args.input is None:
         raise RuntimeError("No input file given.")
-    elif args.input.exists() is False:
+    elif Path(args.input).exists() is False:
         raise FileNotFoundError(f"Input file {args.input} does not exist.")
 
     # check for the model directory
@@ -96,7 +96,7 @@ def chemical_model_post(args: argparse.Namespace) -> int:
             for j in range(1, f["models"][mod].attrs["n_evals"] + 1):
                 # read msdiff output to get the diffusion coefficient
                 msdpath = (
-                    Path.cwd() / "models" / mod / f"eval_{j}" / "msd" / "msdiff.out"
+                    Path.cwd() / "models" / mod / f"eval_{j}" / "msd" / "msdiff_out.csv"
                 )
                 with open(msdpath, encoding="utf-8") as msd:
                     msdlog = msd.readlines()
@@ -115,12 +115,21 @@ def chemical_model_post(args: argparse.Namespace) -> int:
                         if "pair_coeff    2    2" in line:
                             eps = float(line.split()[3])
                             sig = float(line.split()[4])
-                            if (
-                                eps != f["models"][mod]["lj_params"][0][j - 1]
-                                or sig != f["models"][mod]["lj_params"][1][j - 1]
+                            if not (
+                                np.allclose(
+                                    eps,
+                                    f["models"][mod]["lj_params"][0][j - 1],
+                                    rtol=1e-5,
+                                )
+                                and np.allclose(
+                                    sig,
+                                    f["models"][mod]["lj_params"][1][j - 1],
+                                    rtol=1e-5,
+                                )
                             ):
+
                                 raise ValueError(
-                                    f"Error in model {mod} evaluation {j}: the LJ parameters used in the simulation are not the same as the ones in the input file."
+                                    f"Error in model {mod} evaluation {j}: the LJ parameters used in the simulation are not the same as the ones in the input file.\n Expected {f['models'][mod]['lj_params'][0][j-1]} {f['models'][mod]['lj_params'][1][j-1]} but got {eps} {sig}"
                                 )
                             break
 
@@ -140,10 +149,14 @@ def chemical_model_post(args: argparse.Namespace) -> int:
 
             # add the computation time to the model
             f["models"][mod].attrs["computation_time"] = np.mean(comptimes)
-            # add the diffusion coefficient to the model
-            f["models"][mod].create_dataset(
-                "diffusion_coeff", data=np.array(diffusion_coeffs, dtype=np.float32)
-            )
+            # add the diffusion coefficient to the model if it is not already present, otherwise update it
+            if "diffusion_coeff" not in f["models"][mod]:
+                f["models"][mod].create_dataset(
+                    "diffusion_coeff", data=np.array(diffusion_coeffs, dtype=np.float32)
+                )
+            else:
+                f["models"][mod]["diffusion_coeff"][:] = diffusion_coeffs
+
     return 0
 
 
@@ -167,14 +180,14 @@ def sampl_lj_params(ar: NDArray[np.float32]) -> NDArray[np.float32]:
     eps_opc3 = 0.68369 * KJ2KCAL  # kcal/mol
 
     # create an array of size n_models x n_evals with random samples
-    # from a Gaussian distribution with mean epsilon/sigma and standard deviation of 1/6 * epsilon  and 1/30 * sigma
-    # for epsilon this ensures that 99.7% of the samples are within +-1/2 of the values of the standard LJ parameter
-    # for sigma, the width of the gaussian is much smaller because small sigmas lead to exploding simulation boxes
+    # from a Gaussian distribution with mean epsilon/sigma and standard deviation of 1/30 * epsilon  and 1/60 * sigma
+    # this ensures that 99.7% of the samples are within +-10 and 5 % of the values of the standard LJ parameter
+    # for sigma, the width of the gaussian is smaller because small sigmas lead to exploding simulation boxes
 
     # the first row will contain the random samples for the epsilon parameter
-    ar[0, :] = np.random.normal(loc=eps_opc3, scale=eps_opc3 / 6, size=ar[0, :].shape)
+    ar[0, :] = np.random.normal(loc=eps_opc3, scale=eps_opc3 / 30, size=ar[0, :].shape)
     # the second row will contain the random samples for the sigma parameter
-    ar[1, :] = np.random.normal(loc=sig_opc3, scale=sig_opc3 / 30, size=ar[1, :].shape)
+    ar[1, :] = np.random.normal(loc=sig_opc3, scale=sig_opc3 / 60, size=ar[1, :].shape)
 
     return ar
 
@@ -385,7 +398,6 @@ def calc_cpus(n: int) -> int:
         The number of CPUs to use.
     """
     # get the number of CPUs to use for the simulation
-    n_cpus = {16: 1, 32: 1, 64: 2, 128: 2, 256: 2, 512: 4, 1024: 6, 2048: 8}
 
     if n >= 2000:
         cpus = 8

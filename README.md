@@ -43,11 +43,10 @@ The `models` group has the attribute `n_models` and for each `model_{n}` group t
 The `lj_params` dataset is of dimensions `2, n_evals` and contains the Lennard-Jones parameters, $\sigma$ and $\epsilon$, for the model and each evaluation.
 
 `lj_params` is obtained by adding a Gaussian noise to the original values, taken from the [OPC3](https://doi.org/10.1063/1.4960175) force field.
-For $\epsilon$, the Gaussian was chosen to be centered at the original values with a standard deviation of 1/6 of the original value, to make sure that 99.7% of the values are in the range of 0.5 to 1.5 times the original value.
-For $\sigma$, a much tigther Gaussian was chosen, because a small $\sigma$ leads to a large force and lets the simulation explode.
-Therefore, the standard deviation was chosen to be 1/30 of the original value, so that 99.7% of the values are in the range of 0.89 to 1.10 times the original value.
+For $\epsilon$, the Gaussian was chosen to be centered at the original values with a standard deviation of 1/30 of the original value, to make sure that 99.7% of the values are in the range of $\pm 10 \%$ of the original value.
+For $\sigma$, a tighter Gaussian was chosen ($\pm 5 \%$ of the original value), because a small $\sigma$ leads to a large force and lets the simulation explode.
 
-When exectuting the `chemmod-prep` algorithm, the program will generate a default .hdf5 input file if not given any input file.
+When executing the `chemmod-prep` algorithm, the program will generate a default .hdf5 input file if not given any input file.
 It will always create input files for LAMMPS for each model and evaluation.
 
 Upon executing the `chemmod-post` algorithm, the program will look for the output files of LAMMPS and msdiff in the respective folders of the models and evaluations.
