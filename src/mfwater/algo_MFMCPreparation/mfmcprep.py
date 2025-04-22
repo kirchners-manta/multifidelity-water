@@ -7,6 +7,16 @@ import argparse
 from pathlib import Path
 
 def setup_params(args: argparse.Namespace)-> str | Path:
+    """
+    Prepares input files and runs chemical model preparation/postprocessing steps.
+
+    Args:
+        args (argparse.Namespace): Parsed command-line arguments with keys like
+            'output', 'n_models', 'n_molecules', and model evaluations 'm'.
+
+    Returns:
+        str | Path: Path to the generated input file.
+    """
     args_forhdf5 = argparse.Namespace(output= args.output , n_models = args.n_models, n_molecules= args.n_molecules ,n_evals = args.m)
     build_default_input(args=args_forhdf5)
     args_forCM = argparse.Namespace(input=args_forhdf5.output )
