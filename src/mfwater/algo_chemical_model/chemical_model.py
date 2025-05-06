@@ -5,9 +5,9 @@ Implementation of the chemical model for the MFWater project.
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 from pathlib import Path
-from shutil import which
 
 import h5py
 import numpy as np
@@ -210,7 +210,7 @@ def setup_lammps_input(input: str | Path) -> None:
     # check whether the external software is installed
     software = ["fftool", "packmol"]
     for s in software:
-        if which(s) is None:
+        if shutil.which(s) is None:
             raise RuntimeError(f"{s} is not installed or not in PATH.")
 
     # get directory of the data files
@@ -249,12 +249,12 @@ def setup_lammps_input(input: str | Path) -> None:
 
                 sim_dir = eval_dir / "siminp"
                 if sim_dir.exists():
-                    subprocess.run(f"rm -r {sim_dir}", shell=True, check=True)
+                    shutil.rmtree(sim_dir)
                 sim_dir.mkdir(parents=False, exist_ok=False)
 
                 # copy the data files to the model directory
                 # and call fftool
-                subprocess.run(f"cp {data_dir}/opc3* {sim_dir}", shell=True, check=True)
+                shutil.copy(data_dir / "opc3*", sim_dir)
                 subprocess.run(
                     f"cd {sim_dir} && fftool {n} opc3.zmat -b {l:.3f}",
                     shell=True,
@@ -293,20 +293,14 @@ def setup_lammps_input(input: str | Path) -> None:
                 )
 
                 # remove unnecessary files
-                subprocess.run(
-                    f"cd {sim_dir} && rm opc3* pack.inp simbox.xyz in.lmp",
-                    shell=True,
-                    check=True,
-                    capture_output=True,
-                )
+                (sim_dir / "opc3*").unlink()
+                (sim_dir / "pack.inp").unlink()
+                (sim_dir / "simbox.xyz").unlink()
+                (sim_dir / "in.lmp").unlink()
 
                 # copy the custom LAMMPS input file and adjust the LJ parameters
-                subprocess.run(
-                    f"cp {data_dir}/input.lmp {sim_dir}",
-                    shell=True,
-                    check=True,
-                    capture_output=True,
-                )
+                shutil.copy(data_dir / "input.lmp", sim_dir)
+
                 with open(sim_dir / "input.lmp", encoding="utf-8") as lmp:
                     lmpinp = lmp.readlines()
                     for k, line in enumerate(lmpinp):
@@ -323,12 +317,8 @@ def setup_lammps_input(input: str | Path) -> None:
                         lmp.writelines(lmpinp)
 
                 # copy the runscript to the model directory and adjust the simulation parameters
-                subprocess.run(
-                    f"cp {data_dir}/run-lammps-marvin.sh {sim_dir}",
-                    shell=True,
-                    check=True,
-                    capture_output=True,
-                )
+                shutil.copy(data_dir / "run-lammps-marvin.sh", sim_dir)
+
                 with open(sim_dir / "run-lammps-marvin.sh", encoding="utf-8") as rsh:
                     rshinp = rsh.readlines()
                     for k, line in enumerate(rshinp):
