@@ -227,7 +227,7 @@ def setup_lammps_input(input: str | Path) -> None:
 
             # get the number of molecules and corresponding box size
             n = f["models"][mod].attrs["n_molecules"]
-            l = calc_box_size(n)
+            lx, ly, lz = calc_box_size(n, cubic=False)
 
             # create a directory for the model
             model_dir = head_dir / mod
@@ -254,9 +254,11 @@ def setup_lammps_input(input: str | Path) -> None:
 
                 # copy the data files to the model directory
                 # and call fftool
-                shutil.copy(data_dir / "opc3*", sim_dir)
+                shutil.copy(data_dir / "opc3.zmat", sim_dir)
+                shutil.copy(data_dir / "opc3.ff", sim_dir)
+
                 subprocess.run(
-                    f"cd {sim_dir} && fftool {n} opc3.zmat -b {l:.3f}",
+                    f"cd {sim_dir} && fftool {n} opc3.zmat -b {lx:.6f},{ly:.6f},{lz:.6f}",
                     shell=True,
                     check=True,
                     capture_output=True,
@@ -268,7 +270,7 @@ def setup_lammps_input(input: str | Path) -> None:
                     for k, line in enumerate(packinp):
                         if "inside box" in line:
                             packinp[k] = (
-                                f"inside box 0.500 0.500 0.500 {l-0.5:3f} {l-0.5:3f} {l-0.5:3f}\n"
+                                f"inside box 0.500000 0.500000 0.500000 {lx-0.5:.6f} {ly-0.5:.6f} {lz-0.5:.6f}\n"
                             )
                             break
                     packinp.insert(len(packinp), f"seed -1\n")
@@ -286,14 +288,16 @@ def setup_lammps_input(input: str | Path) -> None:
 
                 # call fftool again to generate the data files
                 subprocess.run(
-                    f"cd {sim_dir} && fftool {n} opc3.zmat -b {l:.3f} -l",
+                    f"cd {sim_dir} && fftool {n} opc3.zmat -b {lx:.6f},{ly:.6f},{lz:.6f} -l",
                     shell=True,
                     check=True,
                     capture_output=True,
                 )
 
                 # remove unnecessary files
-                (sim_dir / "opc3*").unlink()
+                (sim_dir / "opc3.zmat").unlink()
+                (sim_dir / "opc3.ff").unlink()
+                (sim_dir / "opc3_pack.xyz").unlink()
                 (sim_dir / "pack.inp").unlink()
                 (sim_dir / "simbox.xyz").unlink()
                 (sim_dir / "in.lmp").unlink()
@@ -333,7 +337,9 @@ def setup_lammps_input(input: str | Path) -> None:
                         rsh.writelines(rshinp)
 
 
-def calc_box_size(n: int, rho: float = 0.997, m: float = 18.01528) -> float:
+def calc_box_size(
+    n: int, rho: float = 0.997, m: float = 18.01528, cubic: bool = True
+) -> list[float]:
     """
     Calculate the box size of an MD simulation box of molecules.
 
@@ -345,19 +351,30 @@ def calc_box_size(n: int, rho: float = 0.997, m: float = 18.01528) -> float:
         Density of the box, by default 0.997 g/cm^3 (for water at 298.15 K).
     m: float, optional
         Mass of the molecules, by default 18.01528 g/mol (for water).
+    cubic : bool, optional
+        If True, the box is cubic, by default True.
+        If False, the box is tetragonal with lx = ly /= lz. Useful for OrthoBoXY simulations.
 
     Returns
     -------
-    float
-        The box size in Angstrom.
+    list[float]
+        The box size in x, y, and z direction in Angstrom.
     """
+
+    # OrthoBoXY ratio of lz/lx = lz/ly
+    RATIO = 2.7933596497
+
     # calculate the volume of the box in cm^3
     v = n * m / (rho * NA)
 
     # calculate the box size in Angstrom
-    box_size = (v * 1e24) ** (1 / 3)
+    if cubic:
+        lx = ly = lz = (v * 1e24) ** (1 / 3)
+    else:
+        lx = ly = (v / RATIO * 1e24) ** (1 / 3)
+        lz = lx * RATIO
 
-    return box_size
+    return [lx, ly, lz]
 
 
 def inspect_hdf5(filename: str) -> None:
