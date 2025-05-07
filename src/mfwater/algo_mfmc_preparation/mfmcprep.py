@@ -6,7 +6,7 @@ import h5py
 import numpy as np
 
 from ..algo_chemical_model import chemical_model_post, chemical_model_prep
-from ..algo_input import build_default_input
+from ..algo_input import build_default_input, check_input_file
 
 
 def setup_params(args: argparse.Namespace) -> str | Path:
@@ -50,10 +50,7 @@ def multifidelity_preparation(args: argparse.Namespace) -> int:
     """
 
     # check input file
-    if args.input is None:
-        raise RuntimeError("No input file given.")
-    elif Path(args.input).exists() is False:
-        raise FileNotFoundError(f"Input file {args.input} does not exist.")
+    check_input_file(args.input, args.algorithm)
 
     # open input file and process information from chemical model
     with h5py.File(args.input, "r+") as f:
@@ -92,9 +89,9 @@ def multifidelity_preparation(args: argparse.Namespace) -> int:
             f["models"][mod].attrs["correlation"] = corr
 
             # debug
-            print(
-                f"Model {mod}: mean = {mc_estim}, variance = {mc_var}, correlation = {corr}"
-            )
+            # print(
+            #     f"Model {mod}: mean = {mc_estim}, variance = {mc_var}, correlation = {corr}"
+            # )
 
     return 0
 
