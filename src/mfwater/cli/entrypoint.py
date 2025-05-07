@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from ..algo_chemical_model import chemical_model_post, chemical_model_prep
 from ..argparser import parser
 from ..algo_input import build_default_input
-from ..algo_MFMCPreparation import multifidelity_preparation
+from ..algo_mfmc_preparation import multifidelity_preparation
 
 
 def console_entry_point(argv: Sequence[str] | None = None) -> int:
