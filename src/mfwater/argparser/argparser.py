@@ -300,7 +300,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
     p.add_argument(
         "-a",
         type=str,
-        choices=["build", "chemmodel-prep", "chemmodel-post"],
+        choices=["build", "chemmodel-prep", "chemmodel-post", "mfmcprep"],
         dest="algorithm",
         help="R|Which algorithm to execute.",
     )
