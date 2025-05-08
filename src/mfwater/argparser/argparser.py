@@ -321,6 +321,13 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         help="R|Output file in HDF5 format.",
     )
     p.add_argument(
+        "--orthoboxy",
+        default=False,
+        help="R|Whether to use tetragonal boxes (in OrthoBoXY shape) for the models.",
+        action="store_true",
+        dest="orthoboxy",
+    )
+    p.add_argument(
         "--models",
         type=int,
         dest="n_models",

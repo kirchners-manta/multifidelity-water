@@ -55,7 +55,7 @@ def chemical_model_prep(args: argparse.Namespace) -> int:
         # f.visit(inspect_hdf5)
 
     # now, as the input file is prepared, the LAMMPS input files can be created
-    setup_lammps_input(args.input)
+    setup_lammps_input(args.input, args.orthoboxy)
 
     return 0
 
@@ -184,7 +184,7 @@ def sampl_lj_params(ar: NDArray[np.float32]) -> NDArray[np.float32]:
     return ar
 
 
-def setup_lammps_input(input: str | Path) -> None:
+def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
     """
     Setup the LAMMPS input files for the MD simulation.
 
@@ -192,6 +192,8 @@ def setup_lammps_input(input: str | Path) -> None:
     ----------
     input : str | Path
         The path to the hdf5 input file.
+    orthoboxy : bool
+        Whether to use OrthoBoXY-shaped boxes for the models.
 
     Raises
     -------
@@ -219,7 +221,7 @@ def setup_lammps_input(input: str | Path) -> None:
 
             # get the number of molecules and corresponding box size
             n = f["models"][mod].attrs["n_molecules"]
-            lx, ly, lz = calc_box_size(n, cubic=False)
+            lx, ly, lz = calc_box_size(n, orthoboxy_shape=orthoboxy)
 
             # create a directory for the model
             model_dir = head_dir / mod
@@ -330,7 +332,10 @@ def setup_lammps_input(input: str | Path) -> None:
 
 
 def calc_box_size(
-    n: int, rho: float = 0.997, m: float = 18.01528, cubic: bool = True
+    n: int,
+    orthoboxy_shape: bool,
+    rho: float = 0.997,
+    m: float = 18.01528,
 ) -> list[float]:
     """
     Calculate the box size of an MD simulation box of molecules.
@@ -339,13 +344,14 @@ def calc_box_size(
     ----------
     n : int
         Number of molecules in the box.
+    orthoboxy_shape : bool
+        If True, the box is tetragonal with lx = ly /= lz. Useful for OrthoBoXY simulations.
+        If False, the box is cubic.
     rho : float, optional
         Density of the box, by default 0.997 g/cm^3 (for water at 298.15 K).
     m: float, optional
         Mass of the molecules, by default 18.01528 g/mol (for water).
-    cubic : bool, optional
-        If True, the box is cubic, by default True.
-        If False, the box is tetragonal with lx = ly /= lz. Useful for OrthoBoXY simulations.
+
 
     Returns
     -------
@@ -360,11 +366,11 @@ def calc_box_size(
     v = n * m / (rho * NA)
 
     # calculate the box size in Angstrom
-    if cubic:
-        lx = ly = lz = (v * 1e24) ** (1 / 3)
-    else:
+    if orthoboxy_shape:
         lx = ly = (v / RATIO * 1e24) ** (1 / 3)
         lz = lx * RATIO
+    else:
+        lx = ly = lz = (v * 1e24) ** (1 / 3)
 
     return [lx, ly, lz]
 
