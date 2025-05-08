@@ -35,7 +35,7 @@ def console_entry_point(argv: Sequence[str] | None = None) -> int:
         return chemical_model_prep(args)
     elif args.algorithm == "chemmodel-post":
         return chemical_model_post(args)
-    elif args.algorithm == "mfmcprep":
+    elif args.algorithm == "mfmc-prep":
         return multifidelity_preparation(args)
 
     return 0

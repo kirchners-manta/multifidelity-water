@@ -57,6 +57,8 @@ def chemical_model_prep(args: argparse.Namespace) -> int:
     # now, as the input file is prepared, the LAMMPS input files can be created
     setup_lammps_input(args.input, args.orthoboxy)
 
+    print("Chemical model preparation done.")
+
     return 0
 
 
@@ -135,9 +137,12 @@ def chemical_model_post(args: argparse.Namespace) -> int:
                                     [3600, 60, 1], line.split()[-1].split(":")
                                 )
                             )
+                        if "Loop time of" in line:
+                            # get the number of CPUs used for the simulation
+                            n_cpus = int(line.split()[5])
                             break
 
-                comptimes.append(time)
+                comptimes.append(time * n_cpus)
 
             # add the computation time to the model
             f["models"][mod].attrs["computation_time"] = np.mean(comptimes)
@@ -148,6 +153,8 @@ def chemical_model_post(args: argparse.Namespace) -> int:
                 )
             else:
                 f["models"][mod]["diffusion_coeff"][:] = diffusion_coeffs
+
+    print("Chemical model post-processing done.")
 
     return 0
 

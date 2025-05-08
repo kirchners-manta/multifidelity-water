@@ -27,6 +27,7 @@ As of now, the available algorithms are:
 - `build`: Build an `.hdf5` file containing the models and their parameters as requested by the user through the command line (using default values if not specified).
 - `chemmod-prep`: Preparations for the chemical model (i.e., generating input files for LAMMPS)
 - `chemmod-post`: Postprocessing of the chemical model (i.e., calculating the MSD and the diffusion coefficient)
+- `mfmc-prep`: Preparations for the multifidelity Monte Carlo (i.e., calculating the correlations between the models)
 
 The program operates on an HDF5 file containing information on the models.
 The current file structure is (omitting attributes):
@@ -64,6 +65,9 @@ models
 ...
 ```
 The program also checks whether the LJ parameters given in the input file are identical to the ones used in the LAMMPS simulations (and throws an error if not).
+
+After executing the `mfmc-prep` algorithm, the mean and standard deviation of the diffusion coefficients for each model are calculated and stored in the model group as attributes `mean` and `std`.
+Additionally, the correlations between the models are calculated and stored in as attribute `correlation`.
 
 ## Implementation hints
 @CodingAllan, to implement your algorithms, I recommend following the structure that I used [here](./src/mfwater/algo_chemical_model/).

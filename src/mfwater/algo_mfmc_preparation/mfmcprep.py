@@ -60,9 +60,10 @@ def multifidelity_preparation(args: argparse.Namespace) -> int:
             # add attributes to the model
             f["models"][mod].attrs["correlation"] = corr
 
-            # debug
-            # print(
-            #     f"Model {mod}: mean = {mc_estim}, std = {mc_std}, correlation = {corr}"
-            # )
+            print(
+                f"Model {mod}: mean = {mc_estim:12.6f}, std = {mc_std:12.6f}, corr = {corr:9.6f}"
+            )
+
+    print("MFMC preparation done.")
 
     return 0
