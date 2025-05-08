@@ -13,6 +13,8 @@ import h5py
 import numpy as np
 from numpy.typing import NDArray
 
+from ..algo_input import check_input_file
+
 # constants
 KJ2KCAL = 0.239006
 NA = 6.022e23  # atoms/mol
@@ -33,10 +35,7 @@ def chemical_model_prep(args: argparse.Namespace) -> int:
     """
 
     # check input file
-    if args.input is None:
-        raise RuntimeError("No input file given.")
-    elif Path(args.input).exists() is False:
-        raise FileNotFoundError(f"Input file {args.input} does not exist.")
+    check_input_file(args.input, args.algorithm)
 
     # work with the given or created input file
     with h5py.File(args.input, "r+") as f:
@@ -77,14 +76,7 @@ def chemical_model_post(args: argparse.Namespace) -> int:
     """
 
     # check input file
-    if args.input is None:
-        raise RuntimeError("No input file given.")
-    elif Path(args.input).exists() is False:
-        raise FileNotFoundError(f"Input file {args.input} does not exist.")
-
-    # check for the model directory
-    if not (Path.cwd() / "models").exists():
-        raise RuntimeError("No models directory found. Run chemical_model_prep first.")
+    check_input_file(args.input, args.algorithm)
 
     # read information on models from the input file
     with h5py.File(args.input, "r+") as f:

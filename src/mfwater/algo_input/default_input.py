@@ -81,3 +81,33 @@ def build_default_input(args: argparse.Namespace) -> int:
     print(f"Number of evaluations: {args.n_evals}")
 
     return 0
+
+
+def check_input_file(input: str | Path, algo: str) -> None:
+    """Check if the input file exists and is valid.
+
+    Parameters
+    ----------
+    input : str | Path
+        The path to the input file.
+    algo : str
+        The name of the algorithm.
+
+    Returns
+    -------
+    int
+        The exit code of the function, by default 0.
+    """
+
+    # check input file
+    if input is None:
+        raise RuntimeError("No input file given.")
+    elif Path(input).exists() is False:
+        raise FileNotFoundError(f"Input file {input} does not exist.")
+
+    if algo != "chemmodel-prep":
+        # check for the model directory
+        if not (Path.cwd() / "models").exists():
+            raise RuntimeError(
+                "No models directory found. Run chemical_model_prep first."
+            )
