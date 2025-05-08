@@ -2,11 +2,11 @@
 Select models for the multifidelity Monte Carlo (MFMC) algorithm.
 """
 
+import math
 from pathlib import Path
 
 import h5py
 import numpy as np
-import math
 
 # @CodingAllan use this to check the input file
 # @CodingAllan these functions should probably take the entire argparse.Namespace as input, compare my implementations
@@ -34,7 +34,7 @@ def select_optimal_models(path: str | Path) -> int:
                 or "variance" not in group.attrs
             ):
                 raise KeyError(
-                    f"Missing required attributes ('correlation', 'computation_time', or 'variance') in model {name}"
+                    f"Missing required attributes ('correlation', 'computation_time', or 'variance') in model {name}"  # type: ignore
                 )
 
         sorted_models = sorted(
