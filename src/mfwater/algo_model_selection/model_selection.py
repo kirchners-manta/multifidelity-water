@@ -1,25 +1,37 @@
 """
 Select models for the multifidelity Monte Carlo (MFMC) algorithm.
 """
-
+import argparse
 import math
-from pathlib import Path
 
 import h5py
 import numpy as np
 
 # @CodingAllan use this to check the input file
 # @CodingAllan these functions should probably take the entire argparse.Namespace as input, compare my implementations
-# from ..algo_input import check_input_file
+from ..algo_input import check_input_file
 
+#Function also takes args.output. Where we want to save the new h5py file.
+def select_optimal_models(args: argparse.Namespace) -> int:
+    """
+    Given a collection of models, we extract the optimal model subset that accelerates the computation of the expectation.
 
-def select_optimal_models(path: str | Path) -> int:
-    path = Path(path)
+    Parameters:
+    ----------
+        args: argparse.Namespace:
+            The command line arguments
 
-    if not path.exists():
-        raise FileNotFoundError(f"Input file '{path}' does not exist.")
+    Raises:
+        KeyError: Program requires 
+        ValueError: _description_
 
-    with h5py.File(path, "r") as f:
+    Returns:
+        int: _description_
+    """
+    
+    check_input_file(args.input, args.algorithm)
+
+    with h5py.File(args.input, "r") as f:
         models = f["models"]
         to_order = models.attrs["n_models"] - 1
         model_items = [
@@ -27,36 +39,30 @@ def select_optimal_models(path: str | Path) -> int:
             for name, group in models.items()
             if isinstance(group, h5py.Group)
         ]
-        for _, group in model_items:
-            if (
-                "correlation" not in group.attrs
-                or "computation_time" not in group.attrs
-                or "variance" not in group.attrs
-            ):
-                raise KeyError(
-                    f"Missing required attributes ('correlation', 'computation_time', or 'variance') in model {name}"  # type: ignore
-                )
 
-        sorted_models = sorted(
+        permutation = [
+        name for name, _ in sorted(
             model_items, key=lambda x: x[1].attrs["correlation"], reverse=True
-        )
-        permutation = [name for name, _ in sorted_models]
+            )
+        ]
+
         if permutation[0] != model_items[0][0]:
             raise ValueError(
                 "\rho_{1,1} is always the largest. Something is wrong with the correlation coefficients!"
             )
-        highfidelity_model = models[model_items[0][0]]
-        v_star = highfidelity_model.attrs["variance"] ** 2
+        highfidelity_model = model_items[0][1]
+        v_star = highfidelity_model.attrs["std"] ** 2
         M_star = [model_items[0][0]]  # List of optimal model names
         for z in range(to_order + 1):
             # Go over all subsets of size 'z'
             order_index = [
                 to_order - z + j for j in range(1, z + 1)
-            ]  # Start with largest possible index
+            ]  # Start with largest possible index in the set ${(i_1,...,i_z)\in {1,...,to_order}^z: i_1 <i_2<...<i_2}$
             c = [0 for k in range(z)]
             for j in range(
                 math.comb(to_order, z)
-            ):  # Iterate over the set ${(i_1,...,i_z)\in {1,...,to_order}^z: i_1 <i_2<...<i_2}$
+            ):  # Iterate over the set ${(i_1,...,i_z)\in {1,...,to_order}^z: i_1 <i_2<...<i_2}.$
+                # This guarantees that we iterate over all subsets of size z, such that \rho_{0,i_1}>\rho_{0,i_2}>...>\rho_{0,i_z}.
                 for k in range(z):
                     if c[k] >= math.comb(order_index[k] - 1, k):
                         if order_index[k] > k + 1:
@@ -93,14 +99,14 @@ def select_optimal_models(path: str | Path) -> int:
                 if skip_model:
                     continue
                 current_mse = (
-                    highfidelity_model.attrs["variance"] ** 2 / weights[0]
+                    highfidelity_model.attrs["std"] ** 2 / weights[0]
                 ) * np.dot(
                     np.sqrt(weights), np.sqrt(differences)
                 ) ** 2  # Compute MSE given optimal coefficients
                 if current_mse < v_star:
                     M_star = cur_models
                     v_star = current_mse
-        with h5py.File("optimal_models.hdf5", "a") as g:
+        with h5py.File(args.output, "a") as g:
             if "models" not in g:
                 g.create_group("models")
             g["models"].attrs["n_models"] = models.attrs["n_models"]
