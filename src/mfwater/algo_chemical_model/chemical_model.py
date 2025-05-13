@@ -382,19 +382,6 @@ def calc_box_size(
     return [lx, ly, lz]
 
 
-def inspect_hdf5(filename: str) -> None:
-    """
-    Inspect the HDF5 file and print its contents using the visit method.
-
-    Parameters
-    ----------
-    filename : str
-        The name of the HDF5 file that is already opened in a context manager.
-    """
-
-    print(filename)
-
-
 def calc_cpus(n: int) -> int:
     """
     Calculate the number of CPUs to use for the simulation.

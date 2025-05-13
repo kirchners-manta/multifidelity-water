@@ -111,22 +111,22 @@ def check_input_file(input: str | Path, algo: str) -> None:
             raise RuntimeError(
                 "No models directory found. Run chemical_model_prep first."
             )
-    
-    if algo != "chemmodel-prep" or algo != "chemmodel-post":
-        #Check if the attributes got saved correctely
+
+    # check if the right attributes are present in the input file
+    if algo not in ["chemmodel-prep", "chemmodel-post"]:
         with h5py.File(input, "r") as f:
-            model_items = [
-                (name ,group)
-                for name, group in f["models"].keys()
-                if isinstance(group, h5py.Group)
-            ]
-            for name, group in model_items:
-                if (
-                "correlation" not in group.attrs
-                or "computation_time" not in group.attrs
-                or "std" not in group.attrs
-                ):
+            for name, group in f["models"].items():
+
+                # debug
+                # print(f"name: {name}, group: {group}")
+
+                if isinstance(group, h5py.Group):
+                    for attr in ["correlation", "computation_time", "std"]:
+                        if attr not in group.attrs:
+                            raise RuntimeError(
+                                f"Missing required attribute '{attr}' in model {name}. Please run algorithm 'mfmc-prep'."
+                            )
+                else:
                     raise RuntimeError(
-                    f"Missing required attributes ('correlation', 'computation_time', or 'std') in model {name}. Please run algorithm 'mfmc-prep'."  # type: ignore
-                )
-        
+                        f"Model {name} is not an hdf5 group. Please run algorithm 'mfmc-prep'."
+                    )

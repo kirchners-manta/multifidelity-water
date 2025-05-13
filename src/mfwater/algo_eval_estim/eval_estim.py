@@ -1,8 +1,8 @@
 """
 Compute the number of evaluations given budget to pass to the chemical model again.
 """
+
 import argparse
-from pathlib import Path
 
 import h5py
 import numpy as np
@@ -17,7 +17,7 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
         args (argparse.Namespace): the input. Make sure that --budget is set
 
     Raises:
-        KeyError: no budget set. 
+        KeyError: no budget set.
         ValueError: Something went wrong with the computation of the correlation
         ValueError: Increase the budget. The high-fidelity model has to be evaluated atleast once
 
@@ -25,12 +25,11 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
         int: the exit code
     """
 
-
     check_input_file(args.input, args.algorithm)
-    
+
     if args.budget == None:
         raise KeyError("please add a budget for your computation time.")
-    
+
     with h5py.File(args.input, "r+") as f:
         models = f["models"]
         n_models = models.attrs["n_models"]
@@ -38,20 +37,16 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
             (name, mod) for name, mod in models.items() if isinstance(mod, h5py.Group)
         ]
         weights = np.array([mod.attrs["computation_time"] for _, mod in model_items])
-        
-        correlation = [
-            mod.attrs["correlation"] for _, mod in model_items
-        ] + [0]
-        
+
+        correlation = [mod.attrs["correlation"] for _, mod in model_items] + [0]
+
         if correlation[0] != 1.0:
             raise ValueError("Correlation of the first model with itself must be 1")
         differences = np.array(
-            [
-                (correlation[q] ** 2 - correlation[q + 1] ** 2) for q in range(n_models)
-            ]
+            [(correlation[q] ** 2 - correlation[q + 1] ** 2) for q in range(n_models)]
         )
         ratio = differences / weights
-        r = np.sqrt(ratio / ratio[0]) 
+        r = np.sqrt(ratio / ratio[0])
         high_fidelity_eval = args.budget / np.dot(weights, r)
         evaluations = np.floor(
             np.concatenate(([high_fidelity_eval], r[1:] * high_fidelity_eval))

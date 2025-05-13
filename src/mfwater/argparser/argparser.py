@@ -300,7 +300,15 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
     p.add_argument(
         "-a",
         type=str,
-        choices=["build", "chemmodel-prep", "chemmodel-post", "mfmc-prep","model-select", "eval-estimator", "mfmc"],
+        choices=[
+            "build",
+            "chemmodel-prep",
+            "chemmodel-post",
+            "mfmc-prep",
+            "model-select",
+            "eval-estimator",
+            "mfmc",
+        ],
         dest="algorithm",
         help="R|Which algorithm to execute.",
     )
@@ -344,7 +352,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         help="R|Number of molecules per model. If more than 1 model, supply several values (space separated).",
         nargs="+",
     )
-    
+
     p.add_argument(
         "--budget",
         type=float,
