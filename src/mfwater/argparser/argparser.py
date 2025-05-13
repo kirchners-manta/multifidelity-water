@@ -352,7 +352,6 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         default=None,
         action=action_not_less_than(0),
         help="R| computational budget required for the estimator.",
-        nargs="+",
     )
     p.add_argument(
         "--evals",
