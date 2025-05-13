@@ -22,11 +22,10 @@ def select_optimal_models(args: argparse.Namespace) -> int:
             The command line arguments
 
     Raises:
-        KeyError: Program requires 
-        ValueError: _description_
+        ValueError: Error when sorting the correlation coefficients
 
     Returns:
-        int: _description_
+        int: the exit code
     """
     
     check_input_file(args.input, args.algorithm)
@@ -62,7 +61,7 @@ def select_optimal_models(args: argparse.Namespace) -> int:
             for j in range(
                 math.comb(to_order, z)
             ):  # Iterate over the set ${(i_1,...,i_z)\in {1,...,to_order}^z: i_1 <i_2<...<i_2}.$
-                # This guarantees that we iterate over all subsets of size z, such that \rho_{0,i_1}>\rho_{0,i_2}>...>\rho_{0,i_z}.
+                # This guarantees that we iterate over all subsets of size z, such that \rho_{0,permutation[i_1]}>\rho_{0,permutation[i_2]}>...>\rho_{0,permutaion[i_z]}.
                 for k in range(z):
                     if c[k] >= math.comb(order_index[k] - 1, k):
                         if order_index[k] > k + 1:
