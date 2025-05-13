@@ -9,6 +9,9 @@ from collections.abc import Sequence
 from ..algo_chemical_model import chemical_model_post, chemical_model_prep
 from ..algo_input import build_default_input
 from ..algo_mfmc_preparation import multifidelity_preparation
+from ..algo_model_selection import select_optimal_models
+from ..algo_eval_estim import evaluate_estimator
+from ..algo_mfmc import multifidelity_monte_carlo
 from ..argparser import parser
 
 
@@ -37,5 +40,10 @@ def console_entry_point(argv: Sequence[str] | None = None) -> int:
         return chemical_model_post(args)
     elif args.algorithm == "mfmc-prep":
         return multifidelity_preparation(args)
-
+    elif args.algorithm == "model-select":
+        return select_optimal_models(args)
+    elif args.algorithm == "eval-estimator":
+        return evaluate_estimator(args)
+    elif args.algorithm == "mfmc":
+        return multifidelity_monte_carlo(args)
     return 0
