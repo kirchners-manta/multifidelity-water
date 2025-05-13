@@ -2,7 +2,7 @@
 Argparser
 =========
 
-This module contains the algorithm for the optimal model selection.
+This module computes the number of evaluations for each model.
 """
 
-from .mfmc import evaluate_estimator, multifidelity_monte_carlo
+from .eval_estim import evaluate_estimator
