@@ -138,7 +138,7 @@ def select_optimal_models(args: argparse.Namespace) -> int:
 
 
 def get_ordered_index_combinations(n: int) -> list[tuple[int, ...]]:
-    """Generate all combinations of indices from 1 to n. Index 0 is excluded (useful for model selection).
+    """Generate all combinations of indices from 1 to n-1. Index 0 is excluded (useful for model selection).
 
     Parameters
     ----------
