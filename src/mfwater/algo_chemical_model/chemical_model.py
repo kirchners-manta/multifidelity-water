@@ -179,14 +179,13 @@ def sampl_lj_params(ar: NDArray[np.float32]) -> NDArray[np.float32]:
     eps_opc3 = 0.68369 * KJ2KCAL  # kcal/mol
 
     # create an array of size n_models x n_evals with random samples
-    # from a Gaussian distribution with mean epsilon/sigma and standard deviation of 1/30 * epsilon  and 1/60 * sigma
-    # this ensures that 99.7% of the samples are within +-10 and 5 % of the values of the standard LJ parameter
-    # for sigma, the width of the gaussian is smaller because small sigmas lead to exploding simulation boxes
+    # from a Gaussian distribution with mean epsilon/sigma and standard deviation of 1/120 * epsilon  and 1/120 * sigma
+    # this ensures that 99.7% of the samples are within +-2.5 of the values of the standard LJ parameters
 
     # the first row will contain the random samples for the epsilon parameter
-    ar[0, :] = np.random.normal(loc=eps_opc3, scale=eps_opc3 / 30, size=ar[0, :].shape)
+    ar[0, :] = np.random.normal(loc=eps_opc3, scale=eps_opc3 / 120, size=ar[0, :].shape)
     # the second row will contain the random samples for the sigma parameter
-    ar[1, :] = np.random.normal(loc=sig_opc3, scale=sig_opc3 / 60, size=ar[1, :].shape)
+    ar[1, :] = np.random.normal(loc=sig_opc3, scale=sig_opc3 / 120, size=ar[1, :].shape)
 
     return ar
 
