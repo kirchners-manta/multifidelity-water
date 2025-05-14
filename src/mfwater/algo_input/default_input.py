@@ -113,7 +113,7 @@ def check_input_file(input: str | Path, algo: str) -> None:
             )
 
     # check if the right attributes are present in the input file
-    if algo not in ["chemmodel-prep", "chemmodel-post"]:
+    if algo not in ["chemmodel-prep", "chemmodel-post", "mfmc-prep"]:
         with h5py.File(input, "r") as f:
             for name, group in f["models"].items():
 
