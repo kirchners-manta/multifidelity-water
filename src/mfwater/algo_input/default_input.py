@@ -112,21 +112,113 @@ def check_input_file(input: str | Path, algo: str) -> None:
                 "No models directory found. Run chemical_model_prep first."
             )
 
+    # dictironary to store which attributes and datasets are required for each algorithm
+    req_attrs = {
+        "chemmodel-prep": {
+            "group": ["models"],
+            "attrs": ["n_models"],
+            "models": {
+                "attrs": ["n_evals", "n_molecules"],
+                "datasets": [],
+            },
+        },
+        "chemmodel-post": {
+            "group": ["models"],
+            "attrs": ["n_models"],
+            "models": {
+                "attrs": ["n_evals", "n_molecules"],
+                "datasets": ["lj_params", "velocity_seeds", "packmol_seeds"],
+            },
+        },
+        "mfmc-prep": {
+            "group": ["models"],
+            "attrs": ["n_models"],
+            "models": {
+                "attrs": [
+                    "n_evals",
+                    "n_molecules",
+                    "computation_time",
+                    "mean",
+                    "std",
+                ],
+                "datasets": [
+                    "lj_params",
+                    "diffusion_coeff",
+                    "velocity_seeds",
+                    "packmol_seeds",
+                ],
+            },
+        },
+        "model-select": {
+            "group": ["models"],
+            "attrs": ["n_models"],
+            "models": {
+                "attrs": [
+                    "n_evals",
+                    "n_molecules",
+                    "correlation",
+                    "mean",
+                    "std",
+                    "computation_time",
+                ],
+                "datasets": [
+                    "lj_params",
+                    "diffusion_coeff",
+                    "velocity_seeds",
+                    "packmol_seeds",
+                ],
+            },
+        },
+        "eval-estimator": {
+            "group": ["models"],
+            "attrs": ["n_models"],
+            "models": {
+                "attrs": [
+                    "n_evals",
+                    "n_molecules",
+                    "correlation",
+                    "mean",
+                    "std",
+                    "computation_time",
+                ],
+                "datasets": [
+                    "lj_params",
+                    "diffusion_coeff",
+                    "velocity_seeds",
+                    "packmol_seeds",
+                ],
+            },
+        },
+        "mfmc": {
+            "group": ["models"],
+            "attrs": ["n_models"],
+            "models": {
+                "attrs": [
+                    "alpha",
+                    "n_evals",
+                    "n_evals_initial",
+                    "n_molecules",
+                    "correlation",
+                    "mean",
+                    "mean_initial",
+                    "std",
+                    "std_initial",
+                    "computation_time",
+                    "computation_time_initial",
+                ],
+                "datasets": [
+                    "lj_params",
+                    "lj_params_initial",
+                    "diffusion_coeff",
+                    "diffusion_coeff_initial",
+                    "velocity_seeds",
+                    "velocity_seeds_initial",
+                    "packmol_seeds",
+                    "packmol_seeds_initial",
+                ],
+            },
+        },
+    }
+
     # check if the right attributes are present in the input file
-    if algo not in ["chemmodel-prep", "chemmodel-post", "mfmc-prep"]:
-        with h5py.File(input, "r") as f:
-            for name, group in f["models"].items():
-
-                # debug
-                # print(f"name: {name}, group: {group}")
-
-                if isinstance(group, h5py.Group):
-                    for attr in ["correlation", "computation_time", "std"]:
-                        if attr not in group.attrs:
-                            raise RuntimeError(
-                                f"Missing required attribute '{attr}' in model {name}. Please run algorithm 'mfmc-prep'."
-                            )
-                else:
-                    raise RuntimeError(
-                        f"Model {name} is not an hdf5 group. Please run algorithm 'mfmc-prep'."
-                    )
+    "tbd"
