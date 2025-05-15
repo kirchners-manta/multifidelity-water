@@ -96,11 +96,17 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
             raise ValueError("The first model must have an alpha of 1.0.")
 
         # update the attributes in the models
-        # and remove deprecated attributes / data sets
         for k, (_, mod) in enumerate(model_items):
             mod.attrs["n_eval"] = evaluations[k]
             mod.attrs["alpha"] = alpha[k]
 
+            # save the old mean, std and diffusion_coeff to be able to compare them later
+            mod.attrs["mean_initial"] = mod.attrs["mean"]
+            mod.attrs["std_initial"] = mod.attrs["std"]
+            mod["diffusion_coeff_initial"] = mod["diffusion_coeff"]
+            mod["lj_params_initial"] = mod["lj_params"]
+
+            # and remove deprecated attributes / data sets
             del mod.attrs["mean"]
             del mod.attrs["std"]
             del mod["diffusion_coeff"]
