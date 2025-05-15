@@ -28,16 +28,32 @@ As of now, the available algorithms are:
 - `chemmod-prep`: Preparations for the chemical model (i.e., generating input files for LAMMPS)
 - `chemmod-post`: Postprocessing of the chemical model (i.e., calculating the MSD and the diffusion coefficient)
 - `mfmc-prep`: Preparations for the multifidelity Monte Carlo (i.e., calculating the correlations between the models)
+- `model-select`: Selects optimal models for the multifidelity Monte Carlo algorithm based on their correlations and costs.
 
-The program operates on an HDF5 file containing information on the models.
-The current file structure is (omitting attributes):
+The program operates on an HDF5 file containing information on the models, which can best be inspected using the `h5dump` command, e.g., like:
+```bash
+h5dump -n 1 somefile.hdf5
 ```
-models
-    model_1
-    model_1/lj_params
-    model_2
-    model_2/lj_params
-...
+This could print an output like this:
+```
+HDF5 "no_gauss.hdf5" {
+FILE_CONTENTS {
+ group      /
+ group      /models
+ attribute  /models/n_models
+ group      /models/model_1
+ attribute  /models/model_1/computation_time
+ attribute  /models/model_1/correlation
+ attribute  /models/model_1/mean
+ attribute  /models/model_1/n_evals
+ attribute  /models/model_1/n_molecules
+ attribute  /models/model_1/std
+ dataset    /models/model_1/diffusion_coeff
+ dataset    /models/model_1/lj_params
+ group      /models/model_2
+ ...
+ }
+}
 ```
 where `models` and `model_{n}` are groups and `lj_params` is a dataset containing the Lennard-Jones parameters for the model.
 The `models` group has the attribute `n_models` and for each `model_{n}` group there are attributes `n_molecules` and `n_evals` (the number of molecules and evaluations for the model).
