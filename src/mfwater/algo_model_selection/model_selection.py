@@ -1,6 +1,7 @@
 """
 Select models for the multifidelity Monte Carlo (MFMC) algorithm.
 """
+
 import argparse
 import math
 
@@ -11,7 +12,8 @@ import numpy as np
 # @CodingAllan these functions should probably take the entire argparse.Namespace as input, compare my implementations
 from ..algo_input import check_input_file
 
-#Function also takes args.output. Where we want to save the new h5py file.
+
+# Function also takes args.output. Where we want to save the new h5py file.
 def select_optimal_models(args: argparse.Namespace) -> int:
     """
     Given a collection of models, we extract the optimal model subset that accelerates the computation of the expectation.
@@ -27,7 +29,7 @@ def select_optimal_models(args: argparse.Namespace) -> int:
     Returns:
         int: the exit code
     """
-    
+
     check_input_file(args.input, args.algorithm)
 
     with h5py.File(args.input, "r") as f:
@@ -40,8 +42,9 @@ def select_optimal_models(args: argparse.Namespace) -> int:
         ]
 
         permutation = [
-        name for name, _ in sorted(
-            model_items, key=lambda x: x[1].attrs["correlation"], reverse=True
+            name
+            for name, _ in sorted(
+                model_items, key=lambda x: x[1].attrs["correlation"], reverse=True
             )
         ]
 
