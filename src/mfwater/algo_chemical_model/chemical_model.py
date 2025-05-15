@@ -179,14 +179,13 @@ def sampl_lj_params(ar: NDArray[np.float32]) -> NDArray[np.float32]:
     eps_opc3 = 0.68369 * KJ2KCAL  # kcal/mol
 
     # create an array of size n_models x n_evals with random samples
-    # from a Gaussian distribution with mean epsilon/sigma and standard deviation of 1/30 * epsilon  and 1/60 * sigma
-    # this ensures that 99.7% of the samples are within +-10 and 5 % of the values of the standard LJ parameter
-    # for sigma, the width of the gaussian is smaller because small sigmas lead to exploding simulation boxes
+    # from a Gaussian distribution with mean epsilon/sigma and standard deviation of 1/120 * epsilon  and 1/120 * sigma
+    # this ensures that 99.7% of the samples are within +-2.5 of the values of the standard LJ parameters
 
     # the first row will contain the random samples for the epsilon parameter
-    ar[0, :] = np.random.normal(loc=eps_opc3, scale=eps_opc3 / 30, size=ar[0, :].shape)
+    ar[0, :] = np.random.normal(loc=eps_opc3, scale=eps_opc3 / 120, size=ar[0, :].shape)
     # the second row will contain the random samples for the sigma parameter
-    ar[1, :] = np.random.normal(loc=sig_opc3, scale=sig_opc3 / 60, size=ar[1, :].shape)
+    ar[1, :] = np.random.normal(loc=sig_opc3, scale=sig_opc3 / 120, size=ar[1, :].shape)
 
     return ar
 
@@ -274,7 +273,9 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                                 f"inside box 0.500000 0.500000 0.500000 {lx-0.5:.6f} {ly-0.5:.6f} {lz-0.5:.6f}\n"
                             )
                             break
-                    packinp.insert(len(packinp), f"seed -1\n")
+                    pseed = np.random.randint(1, 100000)
+                    f["models"][mod].attrs["packmol_seed"] = pseed  # store the seed
+                    packinp.insert(len(packinp), f"seed {pseed}\n")
 
                 with open(sim_dir / "pack.inp", "w", encoding="utf-8") as p:
                     p.writelines(packinp)
@@ -306,6 +307,7 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                 # copy the custom LAMMPS input file and adjust the LJ parameters
                 shutil.copy(data_dir / "input.lmp", sim_dir)
 
+                # add LJ parameters including Gaussian noise to the LAMMPS input file
                 with open(sim_dir / "input.lmp", encoding="utf-8") as lmp:
                     lmpinp = lmp.readlines()
                     for k, line in enumerate(lmpinp):
@@ -314,9 +316,11 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                                 f"pair_coeff    2    2     {f['models'][mod]['lj_params'][0][j-1]:.6f}     {f['models'][mod]['lj_params'][1][j-1]:.6f}  # Ow-Ow\n"
                             )
                         if "velocity all create" in line:
-                            lmpinp[k] = (
-                                f"velocity all create ${{vTK}} {np.random.randint(1, 99999)}\n"
-                            )
+                            vseed = np.random.randint(1, 100000)
+                            f["models"][mod].attrs[
+                                "velocity_seed"
+                            ] = vseed  # store the seed
+                            lmpinp[k] = f"velocity all create ${{vTK}} {vseed}\n"
                             break
                     with open(sim_dir / "input.lmp", "w", encoding="utf-8") as lmp:
                         lmp.writelines(lmpinp)
@@ -380,19 +384,6 @@ def calc_box_size(
         lx = ly = lz = (v * 1e24) ** (1 / 3)
 
     return [lx, ly, lz]
-
-
-def inspect_hdf5(filename: str) -> None:
-    """
-    Inspect the HDF5 file and print its contents using the visit method.
-
-    Parameters
-    ----------
-    filename : str
-        The name of the HDF5 file that is already opened in a context manager.
-    """
-
-    print(filename)
 
 
 def calc_cpus(n: int) -> int:

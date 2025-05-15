@@ -103,12 +103,16 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
             # save the old mean, std and diffusion_coeff to be able to compare them later
             mod.attrs["mean_initial"] = mod.attrs["mean"]
             mod.attrs["std_initial"] = mod.attrs["std"]
+            mod.attrs["velocity_seed_initial"] = mod.attrs["velocity_seed"]
+            mod.attrs["packmol_seed_initial"] = mod.attrs["packmol_seed"]
             mod["diffusion_coeff_initial"] = mod["diffusion_coeff"]
             mod["lj_params_initial"] = mod["lj_params"]
 
             # and remove deprecated attributes / data sets
             del mod.attrs["mean"]
             del mod.attrs["std"]
+            del mod.attrs["velocity_seed"]
+            del mod.attrs["packmol_seed"]
             del mod["diffusion_coeff"]
             del mod["lj_params"]
 
