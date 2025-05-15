@@ -95,26 +95,28 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
         if alpha[0] != 1.0:
             raise ValueError("The first model must have an alpha of 1.0.")
 
-        # update the attributes in the models
         for k, (_, mod) in enumerate(model_items):
-            mod.attrs["n_eval"] = evaluations[k]
-            mod.attrs["alpha"] = alpha[k]
 
             # save the old mean, std and diffusion_coeff to be able to compare them later
             mod.attrs["mean_initial"] = mod.attrs["mean"]
             mod.attrs["std_initial"] = mod.attrs["std"]
-            mod.attrs["velocity_seed_initial"] = mod.attrs["velocity_seed"]
-            mod.attrs["packmol_seed_initial"] = mod.attrs["packmol_seed"]
+            mod.attrs["n_eval_initial"] = mod.attrs["n_eval"]
             mod["diffusion_coeff_initial"] = mod["diffusion_coeff"]
             mod["lj_params_initial"] = mod["lj_params"]
+            mod["velocity_seed_initial"] = mod["velocity_seed"]
+            mod["packmol_seed_initial"] = mod["packmol_seed"]
 
             # and remove deprecated attributes / data sets
             del mod.attrs["mean"]
             del mod.attrs["std"]
-            del mod.attrs["velocity_seed"]
-            del mod.attrs["packmol_seed"]
+            del mod["velocity_seed"]
+            del mod["packmol_seed"]
             del mod["diffusion_coeff"]
             del mod["lj_params"]
+
+            # update the attributes in the models
+            mod.attrs["n_eval"] = evaluations[k]
+            mod.attrs["alpha"] = alpha[k]
 
         # print information for the user
         print("Optimal number of evaluations have been estimated:")

@@ -220,7 +220,7 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
     head_dir = Path.cwd() / "models"
     head_dir.mkdir(parents=False, exist_ok=True)
 
-    with h5py.File(input, "r") as f:
+    with h5py.File(input, "r+") as f:
 
         # iterate over the models
         for _, mod in enumerate(f["models"].keys()):
@@ -235,6 +235,10 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
 
             # get the number of evaluations
             n_evals = f["models"][mod].attrs["n_evals"]
+
+            # initialize lists to store the random seeds for velocity and packmol
+            velocity_seeds = []
+            packmol_seeds = []
 
             # create a subdirectory for each evaluation
             for j in range(1, n_evals + 1):
@@ -274,7 +278,7 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                             )
                             break
                     pseed = np.random.randint(1, 100000)
-                    f["models"][mod].attrs["packmol_seed"] = pseed  # store the seed
+                    packmol_seeds.append(pseed)
                     packinp.insert(len(packinp), f"seed {pseed}\n")
 
                 with open(sim_dir / "pack.inp", "w", encoding="utf-8") as p:
@@ -317,9 +321,7 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                             )
                         if "velocity all create" in line:
                             vseed = np.random.randint(1, 100000)
-                            f["models"][mod].attrs[
-                                "velocity_seed"
-                            ] = vseed  # store the seed
+                            velocity_seeds.append(vseed)
                             lmpinp[k] = f"velocity all create ${{vTK}} {vseed}\n"
                             break
                     with open(sim_dir / "input.lmp", "w", encoding="utf-8") as lmp:
@@ -340,6 +342,14 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                         sim_dir / "run-lammps-marvin.sh", "w", encoding="utf-8"
                     ) as rsh:
                         rsh.writelines(rshinp)
+
+            # add the seeds as datasets to the model
+            f["models"][mod].create_dataset(
+                "velocity_seed", data=np.array(velocity_seeds, dtype=np.int32)
+            )
+            f["models"][mod].create_dataset(
+                "packmol_seed", data=np.array(packmol_seeds, dtype=np.int32)
+            )
 
 
 def calc_box_size(
