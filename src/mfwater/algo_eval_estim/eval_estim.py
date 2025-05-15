@@ -3,7 +3,6 @@ Compute the number of evaluations given budget to pass to the chemical model aga
 """
 
 import argparse
-from pathlib import Path
 
 import h5py
 import numpy as np
@@ -53,7 +52,6 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
         # get weights and correlations
         # add an additional 0 to the correlations for a technically non-existing model
         weights = np.array([mod.attrs["computation_time"] for _, mod in model_items])
-
         correlations = np.array(
             [mod.attrs["correlation"] for _, mod in model_items] + [0]
         )
@@ -108,6 +106,7 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
             del mod["diffusion_coeff"]
             del mod["lj_params"]
 
+        # print information for the user
         print("Optimal number of evaluations have been estimated:")
         for name, mod in model_items:
             print(
