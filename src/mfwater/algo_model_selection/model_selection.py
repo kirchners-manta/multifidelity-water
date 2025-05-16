@@ -4,8 +4,6 @@ Select models for the multifidelity Monte Carlo (MFMC) algorithm.
 
 import argparse
 import itertools
-import shutil
-import subprocess
 
 import h5py
 import numpy as np
@@ -37,10 +35,16 @@ def select_optimal_models(args: argparse.Namespace) -> int:
 
     with h5py.File(args.input, "r") as f:
 
+        # find model groups
+        model_items = [
+            (name, mod)
+            for name, mod in f["models"].items()
+            if isinstance(mod, h5py.Group)
+        ]
+
         # order the models by correlation coefficient squared
-        models = f["models"]
         ordered_models = sorted(
-            models.items(), key=lambda x: x[1].attrs["correlation"] ** 2, reverse=True
+            model_items, key=lambda x: x[1].attrs["correlation"] ** 2, reverse=True
         )
         # debug
         # print(ordered_models)
@@ -75,7 +79,7 @@ def select_optimal_models(args: argparse.Namespace) -> int:
             # get weights and correlations
             weights = np.array(
                 [
-                    models[current_models[i]].attrs["computation_time"]
+                    f["models"][current_models[i]].attrs["computation_time"]
                     for i in range(len(current_models))
                 ]
             )
@@ -85,7 +89,7 @@ def select_optimal_models(args: argparse.Namespace) -> int:
             # add an additional 0 here for a technically non-existing model
             correlations = np.array(
                 [
-                    models[current_models[i]].attrs["correlation"]
+                    f["models"][current_models[i]].attrs["correlation"]
                     for i in range(len(current_models))
                 ]
                 + [0]
@@ -121,22 +125,24 @@ def select_optimal_models(args: argparse.Namespace) -> int:
                 m_star = current_models
                 v_star = current_mse
 
-        # write optimal models to file
-        with h5py.File(args.output, "w") as g:
-            g.create_group("models")
-            g["models"].attrs["n_models"] = f["models"].attrs["n_models"]
-            for name, mod in f["models"].items():
-                if name in m_star:
-                    f.copy(mod, g["models"], name=name)
+        print(f"Optimal models selected and saved to {args.output}")
 
-    print(
-        f"Optimal models selected and saved to {args.output} with the following settings:\n"
-    )
-    # if h5dump is available, print the content of the file
-    if shutil.which("h5dump") is not None:
-        subprocess.run(f"h5dump -n 1 {args.output}", shell=True)
-    else:
-        print("h5dump not available. Cannot print the content of the file.")
+        # write optimal models to file
+        # do this by copying the entire model group to a new file
+        # and then deleting the undesired models
+        count = 1
+        with h5py.File(args.output, "w") as g:
+            f.copy(f["models"], g, name="models")
+            g["models"].attrs["n_models"] = len(m_star)
+            for name, mod in model_items:
+                if name not in m_star:
+                    del g["models"][name]
+                else:
+                    print(f"{name}, {mod.attrs['n_molecules']:4d} molecules")
+                    # rename the model groups in the new file
+                    if name != f"model_{count}":
+                        g["models"].move(name, f"model_{count}")
+                    count += 1
 
     return 0
 

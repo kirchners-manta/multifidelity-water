@@ -88,41 +88,39 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
 
         # initialize alpha vector for mf estimator
         stds = np.array([mod.attrs["std"] for _, mod in model_items])
-        correlations.pop()  # remove the last element which is 0
+        # debug
+        # print(stds)
+        correlations = correlations[:-1]
         alpha = correlations / stds * stds[0]
         # debug
         # print(alpha)
         if alpha[0] != 1.0:
             raise ValueError("The first model must have an alpha of 1.0.")
 
+        # save old attributes and datasets, remove deprecated ones
+        models["lj_params_initial"] = models["lj_params"]
+        models["seeds_initial"] = models["seeds"]
+        del models["lj_params"]
+        del models["seeds"]
+
         for k, (_, mod) in enumerate(model_items):
 
-            # save the old mean, std and diffusion_coeff to be able to compare them later
             mod.attrs["mean_initial"] = mod.attrs["mean"]
             mod.attrs["std_initial"] = mod.attrs["std"]
-            mod.attrs["n_eval_initial"] = mod.attrs["n_eval"]
+            mod.attrs["n_evals_initial"] = mod.attrs["n_evals"]
             mod["diffusion_coeff_initial"] = mod["diffusion_coeff"]
-            mod["lj_params_initial"] = mod["lj_params"]
-            mod["velocity_seed_initial"] = mod["velocity_seed"]
-            mod["packmol_seed_initial"] = mod["packmol_seed"]
-
-            # and remove deprecated attributes / data sets
             del mod.attrs["mean"]
             del mod.attrs["std"]
-            del mod["velocity_seed"]
-            del mod["packmol_seed"]
             del mod["diffusion_coeff"]
-            del mod["lj_params"]
 
-            # update the attributes in the models
-            mod.attrs["n_eval"] = evaluations[k]
+            mod.attrs["n_evals"] = evaluations[k]
             mod.attrs["alpha"] = alpha[k]
 
         # print information for the user
         print("Optimal number of evaluations have been estimated:")
         for name, mod in model_items:
             print(
-                f"{name}: {mod.attrs['n_molecules']} molecules, {mod.attrs['n_eval']} evaluations"
+                f"{name}: {mod.attrs['n_molecules']:4d} molecules, {mod.attrs['n_evals']:4d} evaluations"
             )
 
     return 0

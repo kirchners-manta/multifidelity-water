@@ -40,19 +40,21 @@ def chemical_model_prep(args: argparse.Namespace) -> int:
     # work with the given or created input file
     with h5py.File(args.input, "r+") as f:
 
-        # iterate over the models
-        for _, mod in enumerate(f["models"].keys()):
-
-            # add datasets of the LJ parameters including Gaussian noise
-            f["models"][mod].create_dataset(
-                "lj_params",
-                data=sampl_lj_params(
-                    np.zeros((2, f["models"][mod].attrs["n_evals"]), dtype=np.float32)
-                ),
-            )
-
-        # debug
-        # f.visit(inspect_hdf5)
+        # get the number of models
+        n_models = f["models"].attrs["n_models"]
+        # get the number of evaluations of the last model because it is the maximum
+        n_evals = f["models"][f"model_{n_models}"].attrs["n_evals"]
+        # add datasets of the LJ parameters including Gaussian noise
+        f["models"].create_dataset(
+            "lj_params",
+            data=sampl_lj_params(np.zeros((2, n_evals), dtype=np.float32)),
+        )
+        # add packmol and velocity seeds
+        # first row is for packmol, second for velocity
+        f["models"].create_dataset(
+            "seeds",
+            data=np.random.randint(1, 100000, size=(2, n_evals), dtype=np.int32),
+        )
 
     # now, as the input file is prepared, the LAMMPS input files can be created
     setup_lammps_input(args.input, args.orthoboxy)
@@ -83,14 +85,27 @@ def chemical_model_post(args: argparse.Namespace) -> int:
     # read information on models from the input file
     with h5py.File(args.input, "r+") as f:
 
-        for _, mod in enumerate(f["models"].keys()):
+        # find model groups
+        model_items = [
+            (name, mod)
+            for name, mod in f["models"].items()
+            if isinstance(mod, h5py.Group)
+        ]
+
+        # iterate over the models
+        for name, mod in model_items:
 
             comptimes = []
             diffusion_coeffs = []
-            for j in range(1, f["models"][mod].attrs["n_evals"] + 1):
+            for j in range(1, mod.attrs["n_evals"] + 1):
                 # read msdiff output to get the diffusion coefficient
                 msdpath = (
-                    Path.cwd() / "models" / mod / f"eval_{j}" / "msd" / "msdiff_out.csv"
+                    Path.cwd()
+                    / "models"
+                    / name
+                    / f"eval_{j}"
+                    / "msd"
+                    / "msdiff_out.csv"
                 )
                 with open(msdpath, encoding="utf-8") as msd:
                     msdlog = msd.readlines()
@@ -99,7 +114,7 @@ def chemical_model_post(args: argparse.Namespace) -> int:
 
                 # read LAMMPS output
                 logpath = (
-                    Path.cwd() / "models" / mod / f"eval_{j}" / "simout" / "log.lammps"
+                    Path.cwd() / "models" / name / f"eval_{j}" / "simout" / "log.lammps"
                 )
                 with open(logpath, encoding="utf-8") as lmp:
                     lmplog = lmp.readlines()
@@ -112,18 +127,18 @@ def chemical_model_post(args: argparse.Namespace) -> int:
                             if not (
                                 np.allclose(
                                     eps,
-                                    f["models"][mod]["lj_params"][0][j - 1],
+                                    f["models"]["lj_params"][0][j - 1],
                                     rtol=1e-5,
                                 )
                                 and np.allclose(
                                     sig,
-                                    f["models"][mod]["lj_params"][1][j - 1],
+                                    f["models"]["lj_params"][1][j - 1],
                                     rtol=1e-5,
                                 )
                             ):
 
                                 raise ValueError(
-                                    f"Error in model {mod} evaluation {j}: the LJ parameters used in the simulation are not the same as the ones in the input file.\n Expected {f['models'][mod]['lj_params'][0][j-1]} {f['models'][mod]['lj_params'][1][j-1]} but got {eps} {sig}"
+                                    f"Error in model {name} evaluation {j}: the LJ parameters used in the simulation are not the same as the ones in the input file.\n Expected {f['models']['lj_params'][0][j-1]} {f['models']['lj_params'][1][j-1]} but got {eps} {sig}"
                                 )
                             break
 
@@ -145,14 +160,14 @@ def chemical_model_post(args: argparse.Namespace) -> int:
                 comptimes.append(time * n_cpus)
 
             # add the computation time to the model
-            f["models"][mod].attrs["computation_time"] = np.mean(comptimes)
+            mod.attrs["computation_time"] = np.mean(comptimes)
             # add the diffusion coefficient to the model if it is not already present, otherwise update it
-            if "diffusion_coeff" not in f["models"][mod]:
-                f["models"][mod].create_dataset(
+            if "diffusion_coeff" not in mod.keys():
+                mod.create_dataset(
                     "diffusion_coeff", data=np.array(diffusion_coeffs, dtype=np.float32)
                 )
             else:
-                f["models"][mod]["diffusion_coeff"][:] = diffusion_coeffs
+                mod["diffusion_coeff"][:] = diffusion_coeffs
 
     print("Chemical model post-processing done.")
 
@@ -222,23 +237,32 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
 
     with h5py.File(input, "r+") as f:
 
+        # find model groups
+        model_items = [
+            (name, mod)
+            for name, mod in f["models"].items()
+            if isinstance(mod, h5py.Group)
+        ]
+
+        # output to user
+        print(f"Setting up LAMMPS input files.")
+
         # iterate over the models
-        for _, mod in enumerate(f["models"].keys()):
+        for name, mod in model_items:
+
+            # output to user
+            print(f"Model {name}:")
 
             # get the number of molecules and corresponding box size
-            n = f["models"][mod].attrs["n_molecules"]
+            n = mod.attrs["n_molecules"]
             lx, ly, lz = calc_box_size(n, orthoboxy_shape=orthoboxy)
 
             # create a directory for the model
-            model_dir = head_dir / mod
+            model_dir = head_dir / name
             model_dir.mkdir(parents=False, exist_ok=True)
 
             # get the number of evaluations
-            n_evals = f["models"][mod].attrs["n_evals"]
-
-            # initialize lists to store the random seeds for velocity and packmol
-            velocity_seeds = []
-            packmol_seeds = []
+            n_evals = mod.attrs["n_evals"]
 
             # create a subdirectory for each evaluation
             for j in range(1, n_evals + 1):
@@ -277,9 +301,9 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                                 f"inside box 0.500000 0.500000 0.500000 {lx-0.5:.6f} {ly-0.5:.6f} {lz-0.5:.6f}\n"
                             )
                             break
-                    pseed = np.random.randint(1, 100000)
-                    packmol_seeds.append(pseed)
-                    packinp.insert(len(packinp), f"seed {pseed}\n")
+                    packinp.insert(
+                        len(packinp), f"seed {f['models']['seeds'][0][j-1]}\n"
+                    )
 
                 with open(sim_dir / "pack.inp", "w", encoding="utf-8") as p:
                     p.writelines(packinp)
@@ -317,12 +341,12 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                     for k, line in enumerate(lmpinp):
                         if "VAR_EPS" in line:
                             lmpinp[k] = (
-                                f"pair_coeff    2    2     {f['models'][mod]['lj_params'][0][j-1]:.6f}     {f['models'][mod]['lj_params'][1][j-1]:.6f}  # Ow-Ow\n"
+                                f"pair_coeff    2    2     {f['models']['lj_params'][0][j-1]:.6f}     {f['models']['lj_params'][1][j-1]:.6f}  # Ow-Ow\n"
                             )
                         if "velocity all create" in line:
-                            vseed = np.random.randint(1, 100000)
-                            velocity_seeds.append(vseed)
-                            lmpinp[k] = f"velocity all create ${{vTK}} {vseed}\n"
+                            lmpinp[k] = (
+                                f"velocity all create ${{vTK}} {f['models']['seeds'][1][j-1]}\n"
+                            )
                             break
                     with open(sim_dir / "input.lmp", "w", encoding="utf-8") as lmp:
                         lmp.writelines(lmpinp)
@@ -336,20 +360,12 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                         if "N_CPU" in line:
                             rshinp[k] = f"#SBATCH --ntasks={calc_cpus(n)}\n"
                         if "JOB_NAME" in line:
-                            rshinp[k] = f"#SBATCH --job-name={mod}_{n}_{j}\n"
+                            rshinp[k] = f"#SBATCH --job-name={name}_{n}_{j}\n"
                             break
                     with open(
                         sim_dir / "run-lammps-marvin.sh", "w", encoding="utf-8"
                     ) as rsh:
                         rsh.writelines(rshinp)
-
-            # add the seeds as datasets to the model
-            f["models"][mod].create_dataset(
-                "velocity_seed", data=np.array(velocity_seeds, dtype=np.int32)
-            )
-            f["models"][mod].create_dataset(
-                "packmol_seed", data=np.array(packmol_seeds, dtype=np.int32)
-            )
 
 
 def calc_box_size(

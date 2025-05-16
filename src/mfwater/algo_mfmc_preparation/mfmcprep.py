@@ -31,9 +31,17 @@ def multifidelity_preparation(args: argparse.Namespace) -> int:
     # open input file and process information from chemical model
     with h5py.File(args.input, "r+") as f:
 
-        for k, mod in enumerate(f["models"].keys()):
+        # find model groups
+        model_items = [
+            (name, mod)
+            for name, mod in f["models"].items()
+            if isinstance(mod, h5py.Group)
+        ]
 
-            diffs = np.array(f["models"][mod]["diffusion_coeff"][:])
+        # iterate over the models
+        for k, (name, mod) in enumerate(model_items):
+
+            diffs = np.array(mod["diffusion_coeff"][:])
 
             # MC estimator is just the mean of the diffusion coefficients
             mc_estim = np.mean(diffs)
@@ -42,8 +50,8 @@ def multifidelity_preparation(args: argparse.Namespace) -> int:
             mc_std = np.sqrt(np.mean((diffs - mc_estim) ** 2))
 
             # add attributes to the model
-            f["models"][mod].attrs["mean"] = mc_estim
-            f["models"][mod].attrs["std"] = mc_std
+            mod.attrs["mean"] = mc_estim
+            mod.attrs["std"] = mc_std
 
             # compute the correlation coefficient w.r.t. the high-fidelity model
             if k == 0:
@@ -52,16 +60,16 @@ def multifidelity_preparation(args: argparse.Namespace) -> int:
                 corr = np.mean(
                     (diffs - mc_estim)
                     * (
-                        f["models"]["model_1"]["diffusion_coeff"][:]
-                        - f["models"]["model_1"].attrs["mean"]
+                        model_items[0][1]["diffusion_coeff"][:]
+                        - model_items[0][1].attrs["mean"]
                     )
-                ) / (mc_std * f["models"]["model_1"].attrs["std"])
+                ) / (mc_std * model_items[0][1].attrs["std"])
 
             # add attributes to the model
-            f["models"][mod].attrs["correlation"] = corr
+            mod.attrs["correlation"] = corr
 
             print(
-                f"Model {mod}: mean = {mc_estim:12.6f}, std = {mc_std:12.6f}, corr = {corr:9.6f}"
+                f"Model {name}: mean = {mc_estim:12.6f}, std = {mc_std:12.6f}, corr = {corr:9.6f}"
             )
 
     print("MFMC preparation done.")

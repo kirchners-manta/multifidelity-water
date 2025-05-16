@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Dict, List, TypedDict
+from typing import TypedDict
 
 import h5py
 
@@ -48,20 +48,33 @@ def build_default_input(args: argparse.Namespace) -> int:
         args.n_evals = [100 for _ in range(args.n_models)]
 
     # check if the input model specifications are valid
+    # number of models / molecules
     if type(args.n_molecules) is int:
         args.n_molecules = [args.n_molecules]
     if len(args.n_molecules) != args.n_models:
-        print(
+        raise ValueError(
             f"Number of molecules ({len(args.n_molecules)}) does not match number of models ({args.n_models})."
         )
-        return 1
+    # also make sure that the numbers of molecules are ordered n_1 > n_2 > ... > n_n
+    if args.n_molecules != sorted(args.n_molecules, reverse=True) or len(
+        set(args.n_molecules)
+    ) != len(args.n_molecules):
+        raise ValueError(
+            f"Number of molecules ({args.n_molecules}) is not ordered. Please provide a list of integers in descending order."
+        )
+
+    # evaluations
+    # the number of evaluations has to be 0 < m_1 <= m_2 <= ... <= m_n
     if type(args.n_evals) is int:
         args.n_evals = [args.n_evals]
     if len(args.n_evals) != args.n_models:
-        print(
+        raise ValueError(
             f"Number of evaluations ({len(args.n_evals)}) does not match number of models ({args.n_models})."
         )
-        return 1
+    if args.n_evals != sorted(args.n_evals):
+        raise ValueError(
+            f"Number of evaluations ({args.n_evals}) is not ordered. Please provide a list of integers in ascending or equal order. The last model must have the highest number of evaluations."
+        )
 
     with h5py.File(Path(args.output), "w") as f:
 
@@ -124,6 +137,7 @@ def check_input_file(input: str | Path, algo: str) -> None:
 
         group: list[str]
         attrs: list[str]
+        datasets: list[str]
         models: ModelInfo
 
     # dictionary to store which attributes and datasets are required for each algorithm
@@ -131,6 +145,7 @@ def check_input_file(input: str | Path, algo: str) -> None:
         "chemmodel-prep": {
             "group": ["models"],
             "attrs": ["n_models"],
+            "datasets": ["lj_params", "seeds"],
             "models": {
                 "attrs": ["n_evals", "n_molecules"],
                 "datasets": [],
@@ -139,14 +154,13 @@ def check_input_file(input: str | Path, algo: str) -> None:
         "chemmodel-post": {
             "group": ["models"],
             "attrs": ["n_models"],
-            "models": {
-                "attrs": ["n_evals", "n_molecules"],
-                "datasets": ["lj_params", "velocity_seeds", "packmol_seeds"],
-            },
+            "datasets": ["lj_params", "seeds"],
+            "models": {"attrs": ["n_evals", "n_molecules"], "datasets": []},
         },
         "mfmc-prep": {
             "group": ["models"],
             "attrs": ["n_models"],
+            "datasets": ["lj_params", "seeds"],
             "models": {
                 "attrs": [
                     "n_evals",
@@ -156,16 +170,14 @@ def check_input_file(input: str | Path, algo: str) -> None:
                     "std",
                 ],
                 "datasets": [
-                    "lj_params",
                     "diffusion_coeff",
-                    "velocity_seeds",
-                    "packmol_seeds",
                 ],
             },
         },
         "model-select": {
             "group": ["models"],
             "attrs": ["n_models"],
+            "datasets": ["lj_params", "seeds"],
             "models": {
                 "attrs": [
                     "n_evals",
@@ -176,16 +188,14 @@ def check_input_file(input: str | Path, algo: str) -> None:
                     "computation_time",
                 ],
                 "datasets": [
-                    "lj_params",
                     "diffusion_coeff",
-                    "velocity_seeds",
-                    "packmol_seeds",
                 ],
             },
         },
         "eval-estimator": {
             "group": ["models"],
             "attrs": ["n_models"],
+            "datasets": ["lj_params", "seeds"],
             "models": {
                 "attrs": [
                     "n_evals",
@@ -196,16 +206,14 @@ def check_input_file(input: str | Path, algo: str) -> None:
                     "computation_time",
                 ],
                 "datasets": [
-                    "lj_params",
                     "diffusion_coeff",
-                    "velocity_seeds",
-                    "packmol_seeds",
                 ],
             },
         },
         "mfmc": {
             "group": ["models"],
-            "attrs": ["n_models"],
+            "attrs": ["n_models", "budget"],
+            "datasets": ["lj_params", "lj_params_initial", "seeds", "seeds_initial"],
             "models": {
                 "attrs": [
                     "alpha",
@@ -221,14 +229,8 @@ def check_input_file(input: str | Path, algo: str) -> None:
                     "computation_time_initial",
                 ],
                 "datasets": [
-                    "lj_params",
-                    "lj_params_initial",
                     "diffusion_coeff",
                     "diffusion_coeff_initial",
-                    "velocity_seeds",
-                    "velocity_seeds_initial",
-                    "packmol_seeds",
-                    "packmol_seeds_initial",
                 ],
             },
         },
@@ -247,14 +249,15 @@ def check_input_file(input: str | Path, algo: str) -> None:
         # check if the models are present
         for model in f["models"].keys():
             # check if the model is valid
-            for attr in req_attrs[algo]["models"]["attrs"]:
-                if attr not in f["models"][model].attrs.keys():
-                    raise RuntimeError(
-                        f"Attribute {attr} not found in input file for model {model}."
-                    )
-            # check if the datasets are present
-            for dataset in req_attrs[algo]["models"]["datasets"]:
-                if dataset not in f["models"][model].keys():
-                    raise RuntimeError(
-                        f"Dataset {dataset} not found in input file for model {model}."
-                    )
+            if isinstance(model, h5py.Group):
+                for attr in req_attrs[algo]["models"]["attrs"]:
+                    if attr not in f["models"][model].attrs.keys():
+                        raise RuntimeError(
+                            f"Attribute {attr} not found in input file for model {model}."
+                        )
+                # check if the datasets are present
+                for dataset in req_attrs[algo]["models"]["datasets"]:
+                    if dataset not in f["models"][model].keys():
+                        raise RuntimeError(
+                            f"Dataset {dataset} not found in input file for model {model}."
+                        )
