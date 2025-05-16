@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Dict, List, TypedDict
 
 import h5py
 
@@ -112,8 +113,21 @@ def check_input_file(input: str | Path, algo: str) -> None:
                 "No models directory found. Run chemical_model_prep first."
             )
 
-    # dictironary to store which attributes and datasets are required for each algorithm
-    req_attrs = {
+    class ModelInfo(TypedDict):
+        """Helper class to define the model information."""
+
+        attrs: list[str]
+        datasets: list[str]
+
+    class AlgoInput(TypedDict):
+        """Helper class to define the algorithm input."""
+
+        group: list[str]
+        attrs: list[str]
+        models: ModelInfo
+
+    # dictionary to store which attributes and datasets are required for each algorithm
+    req_attrs: dict[str, AlgoInput] = {
         "chemmodel-prep": {
             "group": ["models"],
             "attrs": ["n_models"],
@@ -221,4 +235,26 @@ def check_input_file(input: str | Path, algo: str) -> None:
     }
 
     # check if the right attributes are present in the input file
-    "tbd"
+    with h5py.File(input, "r") as f:
+        # check if the group is present
+        for group in req_attrs[algo]["group"]:
+            if group not in f.keys():
+                raise RuntimeError(f"Group {group} not found in input file.")
+        # check if the attributes are present
+        for attr in req_attrs[algo]["attrs"]:
+            if attr not in f["models"].attrs.keys():
+                raise RuntimeError(f"Attribute {attr} not found in input file.")
+        # check if the models are present
+        for model in f["models"].keys():
+            # check if the model is valid
+            for attr in req_attrs[algo]["models"]["attrs"]:
+                if attr not in f["models"][model].attrs.keys():
+                    raise RuntimeError(
+                        f"Attribute {attr} not found in input file for model {model}."
+                    )
+            # check if the datasets are present
+            for dataset in req_attrs[algo]["models"]["datasets"]:
+                if dataset not in f["models"][model].keys():
+                    raise RuntimeError(
+                        f"Dataset {dataset} not found in input file for model {model}."
+                    )
