@@ -220,7 +220,7 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
     head_dir = Path.cwd() / "models"
     head_dir.mkdir(parents=False, exist_ok=True)
 
-    with h5py.File(input, "r") as f:
+    with h5py.File(input, "r+") as f:
 
         # iterate over the models
         for _, mod in enumerate(f["models"].keys()):
@@ -235,6 +235,10 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
 
             # get the number of evaluations
             n_evals = f["models"][mod].attrs["n_evals"]
+
+            # initialize lists to store the random seeds for velocity and packmol
+            velocity_seeds = []
+            packmol_seeds = []
 
             # create a subdirectory for each evaluation
             for j in range(1, n_evals + 1):
@@ -273,7 +277,9 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                                 f"inside box 0.500000 0.500000 0.500000 {lx-0.5:.6f} {ly-0.5:.6f} {lz-0.5:.6f}\n"
                             )
                             break
-                    packinp.insert(len(packinp), f"seed -1\n")
+                    pseed = np.random.randint(1, 100000)
+                    packmol_seeds.append(pseed)
+                    packinp.insert(len(packinp), f"seed {pseed}\n")
 
                 with open(sim_dir / "pack.inp", "w", encoding="utf-8") as p:
                     p.writelines(packinp)
@@ -305,6 +311,7 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                 # copy the custom LAMMPS input file and adjust the LJ parameters
                 shutil.copy(data_dir / "input.lmp", sim_dir)
 
+                # add LJ parameters including Gaussian noise to the LAMMPS input file
                 with open(sim_dir / "input.lmp", encoding="utf-8") as lmp:
                     lmpinp = lmp.readlines()
                     for k, line in enumerate(lmpinp):
@@ -313,9 +320,9 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                                 f"pair_coeff    2    2     {f['models'][mod]['lj_params'][0][j-1]:.6f}     {f['models'][mod]['lj_params'][1][j-1]:.6f}  # Ow-Ow\n"
                             )
                         if "velocity all create" in line:
-                            lmpinp[k] = (
-                                f"velocity all create ${{vTK}} {np.random.randint(1, 99999)}\n"
-                            )
+                            vseed = np.random.randint(1, 100000)
+                            velocity_seeds.append(vseed)
+                            lmpinp[k] = f"velocity all create ${{vTK}} {vseed}\n"
                             break
                     with open(sim_dir / "input.lmp", "w", encoding="utf-8") as lmp:
                         lmp.writelines(lmpinp)
@@ -335,6 +342,14 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                         sim_dir / "run-lammps-marvin.sh", "w", encoding="utf-8"
                     ) as rsh:
                         rsh.writelines(rshinp)
+
+            # add the seeds as datasets to the model
+            f["models"][mod].create_dataset(
+                "velocity_seed", data=np.array(velocity_seeds, dtype=np.int32)
+            )
+            f["models"][mod].create_dataset(
+                "packmol_seed", data=np.array(packmol_seeds, dtype=np.int32)
+            )
 
 
 def calc_box_size(
