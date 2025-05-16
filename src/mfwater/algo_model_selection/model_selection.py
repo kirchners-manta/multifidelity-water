@@ -19,14 +19,18 @@ def select_optimal_models(args: argparse.Namespace) -> int:
 
     Parameters:
     ----------
-        args: argparse.Namespace:
-            The command line arguments
-
-    Raises:
-        ValueError: Error when sorting the correlation coefficients
+    args: argparse.Namespace
+        The command line arguments
 
     Returns:
-        int: the exit code
+    -------
+    int
+        Exit code, 0 for success
+
+    Raises:
+    -------
+    ValueError
+        If the first model does not have a correlation of 1.0.
     """
 
     check_input_file(args.input, args.algorithm)

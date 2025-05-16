@@ -112,20 +112,113 @@ def check_input_file(input: str | Path, algo: str) -> None:
                 "No models directory found. Run chemical_model_prep first."
             )
 
-    # if algo != "chemmodel-prep" or algo != "chemmodel-post":
-    #     # Check if the attributes got saved correctely
-    #     with h5py.File(input, "r") as f:
-    #         model_items = [
-    #             (name, group)
-    #             for name, group in f["models"].keys()
-    #             if isinstance(group, h5py.Group)
-    #         ]
-    #         for name, group in model_items:
-    #             if (
-    #                 "correlation" not in group.attrs
-    #                 or "computation_time" not in group.attrs
-    #                 or "std" not in group.attrs
-    #             ):
-    #                 raise RuntimeError(
-    #                     f"Missing required attributes ('correlation', 'computation_time', or 'std') in model {name}. Please run algorithm 'mfmc-prep'."
-    #                 )
+    # dictironary to store which attributes and datasets are required for each algorithm
+    req_attrs = {
+        "chemmodel-prep": {
+            "group": ["models"],
+            "attrs": ["n_models"],
+            "models": {
+                "attrs": ["n_evals", "n_molecules"],
+                "datasets": [],
+            },
+        },
+        "chemmodel-post": {
+            "group": ["models"],
+            "attrs": ["n_models"],
+            "models": {
+                "attrs": ["n_evals", "n_molecules"],
+                "datasets": ["lj_params", "velocity_seeds", "packmol_seeds"],
+            },
+        },
+        "mfmc-prep": {
+            "group": ["models"],
+            "attrs": ["n_models"],
+            "models": {
+                "attrs": [
+                    "n_evals",
+                    "n_molecules",
+                    "computation_time",
+                    "mean",
+                    "std",
+                ],
+                "datasets": [
+                    "lj_params",
+                    "diffusion_coeff",
+                    "velocity_seeds",
+                    "packmol_seeds",
+                ],
+            },
+        },
+        "model-select": {
+            "group": ["models"],
+            "attrs": ["n_models"],
+            "models": {
+                "attrs": [
+                    "n_evals",
+                    "n_molecules",
+                    "correlation",
+                    "mean",
+                    "std",
+                    "computation_time",
+                ],
+                "datasets": [
+                    "lj_params",
+                    "diffusion_coeff",
+                    "velocity_seeds",
+                    "packmol_seeds",
+                ],
+            },
+        },
+        "eval-estimator": {
+            "group": ["models"],
+            "attrs": ["n_models"],
+            "models": {
+                "attrs": [
+                    "n_evals",
+                    "n_molecules",
+                    "correlation",
+                    "mean",
+                    "std",
+                    "computation_time",
+                ],
+                "datasets": [
+                    "lj_params",
+                    "diffusion_coeff",
+                    "velocity_seeds",
+                    "packmol_seeds",
+                ],
+            },
+        },
+        "mfmc": {
+            "group": ["models"],
+            "attrs": ["n_models"],
+            "models": {
+                "attrs": [
+                    "alpha",
+                    "n_evals",
+                    "n_evals_initial",
+                    "n_molecules",
+                    "correlation",
+                    "mean",
+                    "mean_initial",
+                    "std",
+                    "std_initial",
+                    "computation_time",
+                    "computation_time_initial",
+                ],
+                "datasets": [
+                    "lj_params",
+                    "lj_params_initial",
+                    "diffusion_coeff",
+                    "diffusion_coeff_initial",
+                    "velocity_seeds",
+                    "velocity_seeds_initial",
+                    "packmol_seeds",
+                    "packmol_seeds_initial",
+                ],
+            },
+        },
+    }
+
+    # check if the right attributes are present in the input file
+    "tbd"
