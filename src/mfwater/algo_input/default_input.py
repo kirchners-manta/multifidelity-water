@@ -109,8 +109,7 @@ def check_input_file(input: str | Path, algo: str) -> None:
 
     Returns
     -------
-    int
-        The exit code of the function, by default 0.
+    None
     """
 
     # check input file
@@ -125,12 +124,12 @@ def check_input_file(input: str | Path, algo: str) -> None:
             raise RuntimeError(
                 "No models directory found. Run chemical_model_prep first."
             )
-
+                
     class ModelInfo(TypedDict):
         """Helper class to define the model information."""
 
         attrs: list[str]
-        datasets: list[str]
+        datasets: list[str] 
 
     class AlgoInput(TypedDict):
         """Helper class to define the algorithm input."""
@@ -261,3 +260,31 @@ def check_input_file(input: str | Path, algo: str) -> None:
                         raise RuntimeError(
                             f"Dataset {dataset} not found in input file for model {model}."
                         )
+        #we require constant n_evals for mfmc-prep. In the future, one could look into having uneven #of samples
+        #as long as n_evals of every low fidelity is larger or equal to n_eval of highfidelity model.
+        if algo == "mfmc-prep":
+            model_items = [
+                (name, mod) for name, mod in f["models"].items() if isinstance(mod, h5py.Group)
+            ]
+            n_eval = model_items[0][1].attrs["n_eval"]
+            for _,mod in model_items:
+                if mod.attrs["n_eval"] != n_eval:
+                    raise ValueError("To compute the correlation we need the same number of samples from each model!")
+        #we require that the high-fidelity model is at least evaluated once and a a decreasing ordering on the number of evaluations for "mfmc".
+        if algo == "mfmc":
+            model_items = [
+                (name, mod) for name, mod in f["models"].items() if isinstance(mod, h5py.Group)
+            ]
+            ordered_models = sorted(
+                model_items, key=lambda x: x[1].attrs["correlation"] ** 2, reverse=True
+            )
+            evals = [mod.attrs["n_eval"] for _,mod in ordered_models]
+            if evals[0] < 1:
+                raise ValueError(
+                    "Increase the budget. The high-fidelity model has to be evaluated at least once."
+                )
+            if not all(evals[i] <= evals[i + 1] for i in range(len(evals) - 1)):
+                raise ValueError(
+                    "Something went wrong with the model selection. The condition on the ratio between cost and weights is not fulfilled."
+                )
+        

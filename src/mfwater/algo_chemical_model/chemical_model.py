@@ -41,9 +41,10 @@ def chemical_model_prep(args: argparse.Namespace) -> int:
     with h5py.File(args.input, "r+") as f:
 
         # get the number of models
-        n_models = f["models"].attrs["n_models"]
-        # get the number of evaluations of the last model because it is the maximum
-        n_evals = f["models"][f"model_{n_models}"].attrs["n_evals"]
+        # get the number of evaluations of the last model because it is the maximum. 
+        #@Tom: This would be true if the models are ordered by correlation. However, a-priori we dont know that. 
+        
+        n_evals = max([f["models"][mod].attrs["n_evals"] for mod in f["models"].keys()])
         # add datasets of the LJ parameters including Gaussian noise
         f["models"].create_dataset(
             "lj_params",

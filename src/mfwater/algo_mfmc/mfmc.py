@@ -35,13 +35,26 @@ def multifidelity_monte_carlo(args: argparse.Namespace) -> int:
             for name, mod in f["models"].items()
             if isinstance(mod, h5py.Group)
         ]
-
+        #models have to be sorted. The ordering of evaluations is by the correlation coefficient.
+        ordered_models = sorted(
+                model_items, key=lambda x: x[1].attrs["correlation"] ** 2, reverse=True
+            )
         # write out the means and alphas for the MFMC estimator
-        means = np.array([mod.attrs["mean"] for _, mod in model_items])
-        alphas = np.array([mod.attrs["alpha"] for _, mod in model_items])
+        # means = np.array([mod.attrs["mean"] for _, mod in ordered_models])
+        # mean is to be computed. We dont want to run MFMC prep again
+        diffs = [np.array(mod["diffusion_coeff"][:]) for _, mod in ordered_models ]
+        means = np.array([np.mean(diff) for diff in diffs])
+        evals = [mod.attrs["n_eval"] for _, mod in ordered_models]
+        #Compute the mean for the first n_eval evaluations of the previous model.
+        means_lower = np.array([
+            np.mean(diffs[i][:evals[i-1] ]) 
+            for i in range(1,len(ordered_models))
+        ])
+        alphas = np.array([mod.attrs["alpha"] for _, mod in ordered_models])
 
         # compute the MFMC estimator
-        mfmc_estim = means[0] + np.sum(alphas[1:] * (means[1:] - means[:-1]))
+        mfmc_estim = means[0] + np.sum(alphas[1:] * (means[1:] - means_lower))
+        # the second mean must be the MC estimator for the same model, but diff number of samples!
         f["models"].attrs["mfmc_estimator"] = mfmc_estim
 
     # print output to user
