@@ -132,7 +132,7 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
         print("Optimal number of evaluations have been estimated:")
         for name, mod in model_items:
             print(
-                f"{name}: {mod.attrs['n_molecules']} molecules, {mod.attrs['n_eval']} evaluations"
+                f"{name}: {mod.attrs['n_molecules']:4d} molecules, {mod.attrs['n_evals']:4d} evaluations"
             )
 
     return 0

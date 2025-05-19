@@ -43,7 +43,13 @@ def chemical_model_prep(args: argparse.Namespace) -> int:
         # get the number of models
         # get the number of evaluations of the last model because it is the maximum
 
-        n_evals = max([f["models"][mod].attrs["n_evals"] for mod in f["models"].keys()])
+        n_evals = max(
+            [
+                f["models"][mod].attrs["n_evals"]
+                for mod in f["models"].keys()
+                if isinstance(f["models"][mod], h5py.Group)
+            ]
+        )
         # add datasets of the LJ parameters including Gaussian noise
         f["models"].create_dataset(
             "lj_params",
@@ -251,7 +257,7 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
         for name, mod in model_items:
 
             # output to user
-            print(f"Model {name}:")
+            print(f"{name}")
 
             # get the number of molecules and corresponding box size
             n = mod.attrs["n_molecules"]
