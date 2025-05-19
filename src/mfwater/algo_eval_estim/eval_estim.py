@@ -48,12 +48,16 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
         model_items = [
             (name, mod) for name, mod in models.items() if isinstance(mod, h5py.Group)
         ]
+        # sort the models by correlation, else the computation of r is wrong.
+        ordered_models = sorted(
+            model_items, key=lambda x: x[1].attrs["correlation"] ** 2, reverse=True
+        )
 
         # get weights and correlations
         # add an additional 0 to the correlations for a technically non-existing model
-        weights = np.array([mod.attrs["computation_time"] for _, mod in model_items])
+        weights = np.array([mod.attrs["computation_time"] for _, mod in ordered_models])
         correlations = np.array(
-            [mod.attrs["correlation"] for _, mod in model_items] + [0]
+            [mod.attrs["correlation"] for _, mod in ordered_models] + [0]
         )
         # debug
         # print(correlations)
@@ -61,6 +65,7 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
             raise ValueError("The first model must have a correlation of 1.0.")
 
         # compute differences in squared correlations
+        # models have to be ordered for this
         differences = np.array(
             [(correlations[q] ** 2 - correlations[q + 1] ** 2) for q in range(n_models)]
         )
@@ -85,13 +90,16 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
             raise ValueError(
                 "Increase the budget. The high-fidelity model has to be evaluated at least once."
             )
-
+        if not all(
+            evaluations[i] <= evaluations[i + 1] for i in range(len(evaluations) - 1)
+        ):
+            raise ValueError("The evaluations are not sorted in ascending order.")
         # initialize alpha vector for mf estimator
         stds = np.array([mod.attrs["std"] for _, mod in model_items])
         # debug
         # print(stds)
         correlations = correlations[:-1]
-        alpha = correlations / stds * stds[0]
+        alpha = (correlations / stds) * stds[0]
         # debug
         # print(alpha)
         if alpha[0] != 1.0:
@@ -103,7 +111,7 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
         del models["lj_params"]
         del models["seeds"]
 
-        for k, (_, mod) in enumerate(model_items):
+        for k, (_, mod) in enumerate(ordered_models):
 
             mod.attrs["mean_initial"] = mod.attrs["mean"]
             mod.attrs["std_initial"] = mod.attrs["std"]
