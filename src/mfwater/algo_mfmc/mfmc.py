@@ -43,7 +43,7 @@ def multifidelity_monte_carlo(args: argparse.Namespace) -> int:
         # mean is to be computed. We dont want to run MFMC prep again
         diffs = [np.array(mod["diffusion_coeff"][:]) for _, mod in ordered_models]
         means = np.array([np.mean(diff) for diff in diffs])
-        evals = [mod.attrs["n_eval"] for _, mod in ordered_models]
+        evals = [mod.attrs["n_evals"] for _, mod in ordered_models]
 
         # compute the mean for the first n_eval evaluations of the previous model.
         means_lower = np.array(

@@ -113,14 +113,18 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
 
         for k, (_, mod) in enumerate(ordered_models):
 
+            # save the old mean, std and diffusion_coeff to be able to compare them later
             mod.attrs["mean_initial"] = mod.attrs["mean"]
             mod.attrs["std_initial"] = mod.attrs["std"]
             mod.attrs["n_evals_initial"] = mod.attrs["n_evals"]
             mod["diffusion_coeff_initial"] = mod["diffusion_coeff"]
+
+            # and remove deprecated attributes / data sets
             del mod.attrs["mean"]
             del mod.attrs["std"]
             del mod["diffusion_coeff"]
 
+            # update the attributes in the models
             mod.attrs["n_evals"] = evaluations[k]
             mod.attrs["alpha"] = alpha[k]
 
@@ -128,7 +132,7 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
         print("Optimal number of evaluations have been estimated:")
         for name, mod in model_items:
             print(
-                f"{name}: {mod.attrs['n_molecules']:4d} molecules, {mod.attrs['n_evals']:4d} evaluations"
+                f"{name}: {mod.attrs['n_molecules']} molecules, {mod.attrs['n_eval']} evaluations"
             )
 
     return 0

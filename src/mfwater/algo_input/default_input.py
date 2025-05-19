@@ -110,6 +110,7 @@ def check_input_file(input: str | Path, algo: str) -> None:
     Returns
     -------
     None
+    None
     """
 
     # check input file
@@ -268,9 +269,9 @@ def check_input_file(input: str | Path, algo: str) -> None:
                 for name, mod in f["models"].items()
                 if isinstance(mod, h5py.Group)
             ]
-            n_eval = model_items[0][1].attrs["n_eval"]
+            n_eval = model_items[0][1].attrs["n_evals"]
             for _, mod in model_items:
-                if mod.attrs["n_eval"] != n_eval:
+                if mod.attrs["n_evals"] != n_eval:
                     raise ValueError(
                         "To compute the correlation we need the same number of samples from each model!"
                     )
@@ -284,7 +285,7 @@ def check_input_file(input: str | Path, algo: str) -> None:
             ordered_models = sorted(
                 model_items, key=lambda x: x[1].attrs["correlation"] ** 2, reverse=True
             )
-            evals = [mod.attrs["n_eval"] for _, mod in ordered_models]
+            evals = [mod.attrs["n_evals"] for _, mod in ordered_models]
             if evals[0] < 1:
                 raise ValueError(
                     "Increase the budget. The high-fidelity model has to be evaluated at least once."
