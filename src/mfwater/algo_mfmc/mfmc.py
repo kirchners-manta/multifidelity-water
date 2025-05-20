@@ -73,4 +73,7 @@ def multifidelity_monte_carlo(args: argparse.Namespace) -> int:
         print("-" * 87)
         print(f"{'MFMC Estimator'} {' '*59} {mfmc_estim:12.6f}")
 
+        # add last executed algorithm to the file
+        f.attrs["last_algo"] = args.algorithm
+
     return 0

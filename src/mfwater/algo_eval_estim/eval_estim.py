@@ -139,4 +139,7 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
                 f"{name:<8}  {mod.attrs['n_molecules']:7d}  {mod.attrs['n_evals_initial']:12d}  {mod.attrs['mean_initial']:12.6f}  {mod.attrs['std_initial']:12.6f}  {mod.attrs['n_evals']:12d}"
             )
 
+        # add last executed algorithm to the file
+        f.attrs["last_algo"] = args.algorithm
+
     return 0

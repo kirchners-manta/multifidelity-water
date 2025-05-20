@@ -140,6 +140,8 @@ def select_optimal_models(args: argparse.Namespace) -> int:
                     if name != f"model_{count}":
                         g["models"].move(name, f"model_{count}")
                     count += 1
+            # add last executed algorithm to the file
+            g.attrs["last_algo"] = args.algorithm
 
     # print output to user
     print(f"Optimal models selected and saved to '{args.output}':")

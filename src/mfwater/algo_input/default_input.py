@@ -101,6 +101,9 @@ def build_default_input(args: argparse.Namespace) -> int:
                 f"{name:<8}  {mod.attrs['n_molecules']:7d}  {mod.attrs['n_evals']:12d}"
             )
 
+        # add last executed algorithm to the file
+        f.attrs["last_algo"] = args.algorithm
+
     return 0
 
 
@@ -145,6 +148,7 @@ def check_input_file(input: str | Path, algo: str) -> None:
         group: list[str]
         attrs: list[str]
         datasets: list[str]
+        last_algo: list[str]
         models: ModelInfo
 
     # dictionary to store which attributes and datasets are required for each algorithm
@@ -153,6 +157,7 @@ def check_input_file(input: str | Path, algo: str) -> None:
             "group": ["models"],
             "attrs": ["n_models"],
             "datasets": ["lj_params", "seeds"],
+            "last_algo": ["build"],
             "models": {
                 "attrs": ["n_evals", "n_molecules"],
                 "datasets": [],
@@ -162,12 +167,14 @@ def check_input_file(input: str | Path, algo: str) -> None:
             "group": ["models"],
             "attrs": ["n_models"],
             "datasets": ["lj_params", "seeds"],
+            "last_algo": ["chemmodel-prep", "chemmodel-post", "mfmc-prep"],
             "models": {"attrs": ["n_evals", "n_molecules"], "datasets": []},
         },
         "mfmc-prep": {
             "group": ["models"],
             "attrs": ["n_models"],
             "datasets": ["lj_params", "seeds"],
+            "last_algo": ["chemmodel-post", "mfmc-prep"],
             "models": {
                 "attrs": [
                     "n_evals",
@@ -185,6 +192,7 @@ def check_input_file(input: str | Path, algo: str) -> None:
             "group": ["models"],
             "attrs": ["n_models"],
             "datasets": ["lj_params", "seeds"],
+            "last_algo": ["mfmc-prep"],
             "models": {
                 "attrs": [
                     "n_evals",
@@ -203,6 +211,7 @@ def check_input_file(input: str | Path, algo: str) -> None:
             "group": ["models"],
             "attrs": ["n_models"],
             "datasets": ["lj_params", "seeds"],
+            "last_algo": ["model-select"],
             "models": {
                 "attrs": [
                     "n_evals",
@@ -221,6 +230,7 @@ def check_input_file(input: str | Path, algo: str) -> None:
             "group": ["models"],
             "attrs": ["n_models", "budget"],
             "datasets": ["lj_params", "lj_params_initial", "seeds", "seeds_initial"],
+            "last_algo": ["chemmodel-post", "mfmc"],
             "models": {
                 "attrs": [
                     "alpha",
@@ -245,6 +255,12 @@ def check_input_file(input: str | Path, algo: str) -> None:
 
     # check if the right attributes are present in the input file
     with h5py.File(input, "r") as f:
+        # check if the lastly executed algorithm is accepted
+        if "last_algo" in f.attrs.keys():
+            if f.attrs["last_algo"] not in req_attrs[algo]["last_algo"]:
+                raise RuntimeError(
+                    f"Last executed algorithm '{f.attrs['last_algo']}' is not compatible with the current selected algorithm '{algo}'.\nPossible last executed algorithms are: {req_attrs[algo]['last_algo']}"
+                )
         # check if the group is present
         for group in req_attrs[algo]["group"]:
             if group not in f.keys():
@@ -268,7 +284,7 @@ def check_input_file(input: str | Path, algo: str) -> None:
                         raise RuntimeError(
                             f"Dataset {dataset} not found in input file for model {model}."
                         )
-        # we require constant n_evals for mfmc-prep. In the future, one could look into having uneven #of samples
+        # we require constant n_evals for mfmc-prep. In the future, one could look into having uneven number of samples
         # as long as n_evals of every low fidelity is larger or equal to n_eval of highfidelity model.
         if algo == "mfmc-prep":
             model_items = [

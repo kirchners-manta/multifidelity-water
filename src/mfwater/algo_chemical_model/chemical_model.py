@@ -62,10 +62,14 @@ def chemical_model_prep(args: argparse.Namespace) -> int:
             data=np.random.randint(1, 100000, size=(2, n_evals), dtype=np.int32),
         )
 
-    # now, as the input file is prepared, the LAMMPS input files can be created
-    setup_lammps_input(args.input, args.orthoboxy)
+        # now, as the input file is prepared, the LAMMPS input files can be created
+        setup_lammps_input(args.input, args.orthoboxy)
 
-    print("Chemical model preparation done.")
+        # print output to user
+        print("Chemical model preparation done.")
+
+        # add last executed algorithm to the file
+        f.attrs["last_algo"] = args.algorithm
 
     return 0
 
@@ -175,7 +179,11 @@ def chemical_model_post(args: argparse.Namespace) -> int:
             else:
                 mod["diffusion_coeff"][:] = diffusion_coeffs
 
-    print("Chemical model post-processing done.")
+        # print output to user
+        print("Chemical model post-processing done.")
+
+        # add last executed algorithm to the file
+        f.attrs["last_algo"] = args.algorithm
 
     return 0
 

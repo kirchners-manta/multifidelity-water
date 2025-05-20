@@ -79,4 +79,7 @@ def multifidelity_preparation(args: argparse.Namespace) -> int:
                 f"{name:<8}  {mod.attrs['n_molecules']:7d}  {mod.attrs['n_evals']:12d}  {mod.attrs['mean']:12.6f}  {mod.attrs['std']:12.6f}  {mod.attrs['correlation']:12.6f}"
             )
 
+        # add last executed algorithm to the file
+        f.attrs["last_algo"] = args.algorithm
+
     return 0
