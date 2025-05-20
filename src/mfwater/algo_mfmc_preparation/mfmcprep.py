@@ -68,10 +68,15 @@ def multifidelity_preparation(args: argparse.Namespace) -> int:
             # add attributes to the model
             mod.attrs["correlation"] = corr
 
+        # print output to user
+        print("MFMC preparation:")
+        print(
+            f"{'Model':<8}  {'Mols':>7}  {'Evals':>12}  {'Mean':>12}  {'Std':>12}  {'Correlation':>12}"
+        )
+        print("-" * 73)
+        for _, (name, mod) in enumerate(model_items):
             print(
-                f"{name}: mean = {mc_estim:12.6f}, std = {mc_std:12.6f}, corr = {corr:9.6f}"
+                f"{name:<8}  {mod.attrs['n_molecules']:7d}  {mod.attrs['n_evals']:12d}  {mod.attrs['mean']:12.6f}  {mod.attrs['std']:12.6f}  {mod.attrs['correlation']:12.6f}"
             )
-
-    print("MFMC preparation done.")
 
     return 0

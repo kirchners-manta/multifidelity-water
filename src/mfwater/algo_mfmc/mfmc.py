@@ -55,9 +55,22 @@ def multifidelity_monte_carlo(args: argparse.Namespace) -> int:
         # the second mean must be the MC estimator for the same model, but diff number of samples!
         mfmc_estim = means[0] + np.sum(alphas[1:] * (means[1:] - means_lower))
 
+        # set attributes for the models
         f["models"].attrs["mfmc_estimator"] = mfmc_estim
+        for i, (_, mod) in enumerate(ordered_models):
+            mod.attrs["mean"] = means[i]
 
-    # print output to user
-    print(f"MFMC Estimator: {mfmc_estim}")
+        # print output to user
+        print("Calculation of the MFMC estimator:")
+        print(
+            f"{'Model':<8}  {'Mols':>7}  {'Evals(init.)':>12}  {'Mean(init.)':>12}  {'Std(init.)':>12}  {'Evals(opt.)':>12}  {'Mean(opt.)':>12}"
+        )
+        print("-" * 87)
+        for _, (name, mod) in enumerate(ordered_models):
+            print(
+                f"{name:<8}  {mod.attrs['n_molecules']:7d}  {mod.attrs['n_evals_initial']:12d}  {mod.attrs['mean_initial']:12.6f}  {mod.attrs['std_initial']:12.6f}  {mod.attrs['n_evals']:12d}  {mod.attrs['mean']:12.6f}"
+            )
+        print("-" * 87)
+        print(f"{'MFMC Estimator'} {' '*59} {mfmc_estim:12.6f}")
 
     return 0

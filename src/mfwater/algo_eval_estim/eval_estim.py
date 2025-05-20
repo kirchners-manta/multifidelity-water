@@ -128,11 +128,15 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
             mod.attrs["n_evals"] = evaluations[k]
             mod.attrs["alpha"] = alpha[k]
 
-        # print information for the user
-        print("Optimal number of evaluations have been estimated:")
-        for name, mod in model_items:
+        # print output to user
+        print("Estimated optimal number of evaluations:")
+        print(
+            f"{'Model':<8}  {'Mols':>7}  {'Evals(init.)':>12}  {'Mean(init.)':>12}  {'Std(init.)':>12}  {'Evals(opt.)':>12}"
+        )
+        print("-" * 73)
+        for _, (name, mod) in enumerate(ordered_models):
             print(
-                f"{name}: {mod.attrs['n_molecules']:4d} molecules, {mod.attrs['n_evals']:4d} evaluations"
+                f"{name:<8}  {mod.attrs['n_molecules']:7d}  {mod.attrs['n_evals_initial']:12d}  {mod.attrs['mean_initial']:12.6f}  {mod.attrs['std_initial']:12.6f}  {mod.attrs['n_evals']:12d}"
             )
 
     return 0

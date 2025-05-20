@@ -88,11 +88,18 @@ def build_default_input(args: argparse.Namespace) -> int:
             model.attrs["n_evals"] = args.n_evals[i - 1]
             model.attrs["n_molecules"] = args.n_molecules[i - 1]
 
-    # print output for user
-    print(f"Input file '{args.output}' created with the following settings:")
-    print(f"Number of models: {args.n_models}")
-    print(f"Number of molecules: {args.n_molecules}")
-    print(f"Number of evaluations: {args.n_evals}")
+        model_items = [
+            (name, mod) for name, mod in models.items() if isinstance(mod, h5py.Group)
+        ]
+
+        # print output to user
+        print(f"Input file '{args.output}' created with the following settings:")
+        print(f"{'Model':<8}  {'Mols':>7}  {'Evals':>12}")
+        print("-" * 31)
+        for _, (name, mod) in enumerate(model_items):
+            print(
+                f"{name:<8}  {mod.attrs['n_molecules']:7d}  {mod.attrs['n_evals']:12d}"
+            )
 
     return 0
 

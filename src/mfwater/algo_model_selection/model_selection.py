@@ -125,8 +125,6 @@ def select_optimal_models(args: argparse.Namespace) -> int:
                 m_star = current_models
                 v_star = current_mse
 
-        print(f"Optimal models selected and saved to {args.output}")
-
         # write optimal models to file
         # do this by copying the entire model group to a new file
         # and then deleting the undesired models
@@ -138,11 +136,25 @@ def select_optimal_models(args: argparse.Namespace) -> int:
                 if name not in m_star:
                     del g["models"][name]
                 else:
-                    print(f"{name}, {mod.attrs['n_molecules']:4d} molecules")
                     # rename the model groups in the new file
                     if name != f"model_{count}":
                         g["models"].move(name, f"model_{count}")
                     count += 1
+
+    # print output to user
+    print(f"Optimal models selected and saved to '{args.output}':")
+    print(f"{'Model':<8}  {'Mols':>7}  {'Evals':>12}  {'Mean':>12}  {'Std':>12}")
+    print("-" * 59)
+    with h5py.File(args.output, "r") as g:
+        model_items_output = [
+            (name, mod)
+            for name, mod in g["models"].items()
+            if isinstance(mod, h5py.Group)
+        ]
+        for _, (name, mod) in enumerate(model_items_output):
+            print(
+                f"{name:<8}  {mod.attrs['n_molecules']:7d}  {mod.attrs['n_evals']:12d}  {mod.attrs['mean']:12.6f}  {mod.attrs['std']:12.6f}"
+            )
 
     return 0
 
