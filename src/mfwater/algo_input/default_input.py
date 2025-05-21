@@ -157,7 +157,7 @@ def check_input_file(input: str | Path, algo: str) -> None:
             "group": ["models"],
             "attrs": ["n_models"],
             "datasets": ["lj_params", "seeds"],
-            "last_algo": ["build"],
+            "last_algo": ["build", "eval-estimator"],
             "models": {
                 "attrs": ["n_evals", "n_molecules"],
                 "datasets": [],

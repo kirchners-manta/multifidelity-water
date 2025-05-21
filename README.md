@@ -59,13 +59,12 @@ model_1       128            50
 model_2        64            50
 model_3        32            50
 ```
-The `build` algorithm can be executed several times, but the output file will be overwritten if it already exists (question will be asked to the user).
-
 After the `build` step, the input file will have the following structure (inspecting it with `h5dump -n 1 blub.hdf5`):
 ```
 HDF5 "blub.hdf5" {
 FILE_CONTENTS {
  group      /
+ attribute  /last_algo
  group      /models
  attribute  /models/n_models
  group      /models/model_1
@@ -82,6 +81,9 @@ FILE_CONTENTS {
 ```
 where `models` and `model_{n}` are groups and `n_models` is an attribute of the `models` group.
 Every `model_{n}` group has attributes `n_molecules` and `n_evals` (the number of molecules and evaluations for the model).
+Additionally, the `last_algo` attribute is added to the root group, which stores the name of the last executed algorithm and checks whether a new algorithm can be executed on the input file.
+
+The `build` algorithm can be executed several times, but the output file will be overwritten if it already exists (question will be asked to the user).
 
 ### chemmod-prep
 This algorithm generates the directories and input files for the MD simualtion using LAMMPS for each model and evaluation.
@@ -98,12 +100,12 @@ The algorithm can be executed with the following command:
 mfwater -a chemmodel-prep -i blub.hdf5
 ```
 where `blub.hdf5` is the input file created in the `build` step.
-This algorithm cannot be executed several times on the same input file, as it will overwrite the existing files and draw new random parameters.
 The file structure will be modified to include the LJ parameters and the random seeds as datasets in the `models` group.
 ```
 HDF5 "blub.hdf5" {
 FILE_CONTENTS {
  group      /
+ attribute  /last_algo
  group      /models
  attribute  /models/n_models
  dataset    /models/lj_params
@@ -119,8 +121,13 @@ FILE_CONTENTS {
 A directory `models` will be created in the current working directory, containing subdirectories for each model and evaluation.
 In each evaluattion subdirectory, a simulation input folder `siminp` will be created, containing the LAMMPS input files and a runscript for the [Marvin cluster](https://www.hpc.uni-bonn.de/en/systems/marvin) at University of Bonn.
 
+Optionally, instead of cubic simulation boxes (which is the default), the user can request tetragonal boxes in the [OrthoBoXY](https://doi.org/10.1021/acs.jpcb.3c04492) style by specifying the `--orthoboxy` option.
+
 After executing the `chemmod-prep` algorithm, the user can run the simulations in parallel on the cluster (not included in this code).
 When completed, the mean squared displacement (MSD) and the diffusion coefficient can be calculated using [TRAVIS](http://www.travis-analyzer.de/) and [msdiff](https://github.com/kirchners-manta/msdiff) (not included in this code).
+Please note that when specifying the `--orthoboxy` option, the TRAVIS and msdiff anlyses have to be adjusted accordingly, as the simulation box is not cubic anymore.
+
+The `chemmodel-prep` algorithm cannot be executed several times on the same input file, as it will overwrite the existing files and draw new random parameters.
 
 ### chemmod-post
 This algorithm postprocesses the results of the MD simulations.
@@ -130,12 +137,12 @@ mfwater -a chemmodel-post -i big_oms.hdf5
 It looks for the output files of LAMMPS and msdiff in the `simout/log.lammps` and `msd/misdiff_out.csv` folders/files of the models and evaluations directories, to extract the computation time and the diffusion coefficient, respectively.
 For each model, the dataset `diffusion_coeff` is added to the model group, containing the diffusion coefficient (in $10^{-12}\,\text{m}^2\,\text{s}^{-1}$) for each evaluation.
 Additionally, each model will be given an attibute `computation_time` with the averaged computation time (in s) of the evaluations.
-This algorithm can be executed several times on the same input file, but it will overwrite the existing datasets and attributes.
 The expected file structure after executing the `chemmod-post` algorithm is:
 ```
 HDF5 "blub.hdf5" {
 FILE_CONTENTS {
  group      /
+ attribute  /last_algo
  group      /models
  attribute  /models/n_models
  dataset    /models/lj_params
@@ -150,6 +157,7 @@ FILE_CONTENTS {
  }
 }
 ```
+The `chemmodel-post` algorithm can be executed several times on the same input file, but it will overwrite the existing datasets and attributes.
 
 ### mfmc-prep
 This algorithm calculates the mean and standard deviation of the diffusion coefficients for each model and stores them as attributes `mean` and `std` in the respective model group.
@@ -176,6 +184,7 @@ The file structure after executing the `mfmc-prep` algorithm will be:
 HDF5 "big.hdf5" {
 FILE_CONTENTS {
  group      /
+ attribute  /last_algo
  group      /models
  attribute  /models/n_models
  dataset    /models/lj_params
@@ -193,7 +202,7 @@ FILE_CONTENTS {
  }
 }
 ```
-This algorithm can be executed several times on the same input file, but it will overwrite the existing attributes.
+The `mfmc-prep` algorithm can be executed several times on the same input file, but it will overwrite the existing attributes.
 
 ### model-select
 This algorithm selects the optimal models for the MFMC algorithm based on their correlations and costs (computation time).
@@ -212,7 +221,8 @@ model_2        64          1000   1900.939941    575.116638
 model_3        32          1000   1772.538452    507.623077
 ```
 saying that of the previous six models, three (numbers 1, 5, and 6) were selected for the MFMC algorithm, with the latter two being renamed to `model_2` and `model_3`, respectively.
-This algorithm can be executed several times on the same input file, but it will overwrite the existing models and parameters.
+
+The `model-select` algorithm can be executed several times on the same input file, but it will overwrite the existing models and parameters.
 
 ### eval-estimator
 This algorithm estimates the optimal number of evaluations for the selected models.
@@ -235,6 +245,7 @@ The file structure after executing the `eval-estimator` algorithm will be:
 HDF5 "selected_models.hdf5" {
 FILE_CONTENTS {
  group      /
+ attribute  /last_algo
  group      /models
  attribute  /models/budget
  attribute  /models/n_models
@@ -255,7 +266,7 @@ FILE_CONTENTS {
  }
 }
 ```
-This algorithm cannot be executed several times on the same input file, because some attributes and datasets were renamed with an `_initial` suffix.
+The `eval-estimator` algorithm cannot be executed several times on the same input file, because some attributes and datasets were renamed with an `_initial` suffix.
 
 After completing the `eval-estimator` step, the `chemmodel-prep` and `chemmod-post` steps need to be repeated with the selected models.
 
@@ -277,12 +288,12 @@ model_3        32          1000   1772.538452    507.623077           278   1653
 MFMC Estimator                                                              2194.473635
 ```
 where (`init`) and (`opt`) refer to the initial and optimal values, respectively.
-This algorithm can be executed several times on the same input file, but it will overwrite the existing attributes.
 The file structure after executing the `mfmc` algorithm will be:
 ```
 HDF5 "selected_models.hdf5" {
 FILE_CONTENTS {
  group      /
+ attribute  /last_algo
  group      /models
  attribute  /models/budget
  attribute  /models/mfmc_estimator
@@ -308,6 +319,7 @@ FILE_CONTENTS {
  }
 }
 ```
+The `mfmc` algorithm can be executed several times on the same input file, but it will overwrite the existing attributes.
 
 ## Notes
 The generation of input files for LAMMPS involves external software, namely [fftool](https://github.com/paduagroup/fftool) and [packmol](https://m3g.github.io/packmol/).
