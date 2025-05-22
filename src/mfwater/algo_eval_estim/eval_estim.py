@@ -42,7 +42,6 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
 
         models = f["models"]
         models.attrs["budget"] = args.budget
-        n_models = models.attrs["n_models"]
 
         # get all the models that are groups
         model_items = [
@@ -67,7 +66,10 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
         # compute differences in squared correlations
         # models have to be ordered for this
         differences = np.array(
-            [(correlations[q] ** 2 - correlations[q + 1] ** 2) for q in range(n_models)]
+            [
+                (correlations[q] ** 2 - correlations[q + 1] ** 2)
+                for q in range(len(ordered_models))
+            ]
         )
         # debug
         # print(differences)
@@ -101,8 +103,8 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
         correlations = correlations[:-1]
         alpha = (correlations / stds) * stds[0]
         # debug
-        # print(alpha)
-        if alpha[0] != 1.0:
+        # print(alpha[0])
+        if np.round(alpha[0], 6) != 1.0:
             raise ValueError("The first model must have an alpha of 1.0.")
 
         # save old attributes and datasets, remove deprecated ones

@@ -55,8 +55,38 @@ def multifidelity_monte_carlo(args: argparse.Namespace) -> int:
         # the second mean must be the MC estimator for the same model, but diff number of samples!
         mfmc_estim = means[0] + np.sum(alphas[1:] * (means[1:] - means_lower))
 
+        # to compute the error of the MFMC estimator, we need the original correlations and weights again
+        correlations = np.array(
+            [mod.attrs["correlation"] for _, mod in ordered_models] + [0]
+        )
+        weights = np.array([mod.attrs["computation_time"] for _, mod in ordered_models])
+        # debug
+        # print(correlations)
+        # print(weights)
+        if correlations[0] != 1.0:
+            raise ValueError("The first model must have a correlation of 1.0.")
+
+        # compute differences in squared correlations
+        # models have to be ordered for this
+        differences = np.array(
+            [
+                (correlations[q] ** 2 - correlations[q + 1] ** 2)
+                for q in range(len(ordered_models))
+            ]
+        )
+        # debug
+        # print(differences)
+
+        # mfmc error
+        mfmc_error = np.sqrt(
+            ordered_models[0][1].attrs["std_initial"] ** 2
+            / f["models"].attrs["budget"]
+            * np.sum(np.sqrt(weights * differences)) ** 2
+        )
+
         # set attributes for the models
         f["models"].attrs["mfmc_estimator"] = mfmc_estim
+        f["models"].attrs["mfmc_error"] = mfmc_error
         for i, (_, mod) in enumerate(ordered_models):
             mod.attrs["mean"] = means[i]
 
@@ -71,7 +101,7 @@ def multifidelity_monte_carlo(args: argparse.Namespace) -> int:
                 f"{name:<8}  {mod.attrs['n_molecules']:7d}  {mod.attrs['n_evals_initial']:12d}  {mod.attrs['mean_initial']:12.6f}  {mod.attrs['std_initial']:12.6f}  {mod.attrs['n_evals']:12d}  {mod.attrs['mean']:12.6f}"
             )
         print("-" * 87)
-        print(f"{'MFMC Estimator'} {' '*59} {mfmc_estim:12.6f}")
+        print(f"{'MFMC Estimator'} {' '*17} {mfmc_estim:12.6f}  {mfmc_error:12.6f}")
 
         # add last executed algorithm to the file
         f.attrs["last_algo"] = args.algorithm

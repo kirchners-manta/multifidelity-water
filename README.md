@@ -272,7 +272,7 @@ After completing the `eval-estimator` step, the `chemmodel-prep` and `chemmod-po
 
 ### mfmc
 This algorithm computes the MFMC estimator based on the selected models and their results obtained with optimal number of evaluations.
-The MFMC estimator is added as an attribute `mfmc_estimator` to the input file.
+The MFMC estimator and its error are added as attributes `mfmc_estimator` `mfmc_error` to the input file.
 ```bash
 mfwater -a mfmc -i selected_models.hdf5
 ```
@@ -296,6 +296,7 @@ FILE_CONTENTS {
  attribute  /last_algo
  group      /models
  attribute  /models/budget
+ attribute  /models/mfmc_error
  attribute  /models/mfmc_estimator
  attribute  /models/n_models
  dataset    /models/lj_params
