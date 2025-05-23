@@ -129,7 +129,7 @@ def check_input_file(input: str | Path, algo: str) -> None:
     elif Path(input).exists() is False:
         raise FileNotFoundError(f"Input file {input} does not exist.")
 
-    if algo not in ["chemmodel-prep", "eval-estimator"]:
+    if algo in ["chemmodel-post"]:
         # check for the model directory
         if not (Path.cwd() / "models").exists():
             raise RuntimeError(
