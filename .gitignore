@@ -1,3 +1,5 @@
+# .gitignore for Python projects
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -148,3 +150,15 @@ dmypy.json
 
 # pytype static type analyzer
 .pytype/
+
+####################################
+# Extras
+
+.vscode/
+
+# files from the test directory
+test/**/models/model_*/eval_*/siminp
+test/**/models/model_*/eval_*/simout/*
+test/**/models/model_*/eval_*/msd/*
+!test/**/models/model_*/eval_*/simout/log.lammps
+!test/**/models/model_*/eval_*/msd/msdiff_out.csv

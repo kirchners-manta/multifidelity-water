@@ -38,6 +38,15 @@ def multifidelity_preparation(args: argparse.Namespace) -> int:
             if isinstance(mod, h5py.Group)
         ]
 
+        # we require constant n_evals for mfmc-prep. In the future, one could look into having uneven number of samples
+        # as long as n_evals of every low fidelity is larger or equal to n_eval of highfidelity model.
+        n_eval = model_items[0][1].attrs["n_evals"]
+        for _, mod in model_items:
+            if mod.attrs["n_evals"] != n_eval:
+                raise ValueError(
+                    "To compute the correlation we need the same number of samples from each model!"
+                )
+
         # iterate over the models
         for k, (name, mod) in enumerate(model_items):
 

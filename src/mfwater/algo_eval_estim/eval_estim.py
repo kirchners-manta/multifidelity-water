@@ -33,9 +33,6 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
         0 if the function runs successfully.
     """
 
-    if args.budget == None:
-        raise KeyError("Please add a computational budget.")
-
     check_input_file(args.input, args.algorithm)
 
     with h5py.File(args.input, "r+") as f:
@@ -95,7 +92,9 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
         if not all(
             evaluations[i] <= evaluations[i + 1] for i in range(len(evaluations) - 1)
         ):
-            raise ValueError("The evaluations are not sorted in ascending order.")
+            raise ValueError(
+                "The evaluations are not sorted in ascending order."
+            )  # check if its possible to catch this error
         # initialize alpha vector for mf estimator
         stds = np.array([mod.attrs["std"] for _, mod in model_items])
         # debug
@@ -104,8 +103,6 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
         alpha = (correlations / stds) * stds[0]
         # debug
         # print(alpha[0])
-        if np.round(alpha[0], 6) != 1.0:
-            raise ValueError("The first model must have an alpha of 1.0.")
 
         # save old attributes and datasets, remove deprecated ones
         models["lj_params_initial"] = models["lj_params"]

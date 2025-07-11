@@ -25,10 +25,6 @@ def build_default_input(args: argparse.Namespace) -> int:
         The exit code of the function, by default 0.
     """
 
-    # if no output file is specified, use the default name
-    if args.output is None:
-        args.output = "default.hdf5"
-
     # check if specified output file already exists
     if Path(args.output).is_file():
         print(
@@ -53,14 +49,14 @@ def build_default_input(args: argparse.Namespace) -> int:
         args.n_molecules = [args.n_molecules]
     if len(args.n_molecules) != args.n_models:
         raise ValueError(
-            f"Number of molecules ({len(args.n_molecules)}) does not match number of models ({args.n_models})."
+            f"Numbers of molecules ({len(args.n_molecules)}) does not match number of models ({args.n_models})."
         )
     # also make sure that the numbers of molecules are ordered n_1 > n_2 > ... > n_n
     if args.n_molecules != sorted(args.n_molecules, reverse=True) or len(
         set(args.n_molecules)
     ) != len(args.n_molecules):
         raise ValueError(
-            f"Number of molecules ({args.n_molecules}) is not ordered. Please provide a list of integers in descending order."
+            f"Numbers of molecules ({args.n_molecules}) is not ordered. Please provide a list of integers in descending order."
         )
 
     # evaluations
@@ -69,11 +65,11 @@ def build_default_input(args: argparse.Namespace) -> int:
         args.n_evals = [args.n_evals]
     if len(args.n_evals) != args.n_models:
         raise ValueError(
-            f"Number of evaluations ({len(args.n_evals)}) does not match number of models ({args.n_models})."
+            f"Numbers of evaluations ({len(args.n_evals)}) does not match number of models ({args.n_models})."
         )
     if args.n_evals != sorted(args.n_evals):
         raise ValueError(
-            f"Number of evaluations ({args.n_evals}) is not ordered. Please provide a list of integers in ascending or equal order. The last model must have the highest number of evaluations."
+            f"Numbers of evaluations ({args.n_evals}) is not ordered. Please provide a list of integers in ascending or equal order. The last model must have the highest number of evaluations."
         )
 
     with h5py.File(Path(args.output), "w") as f:
@@ -119,7 +115,6 @@ def check_input_file(input: str | Path, algo: str) -> None:
 
     Returns
     -------
-    None
     None
     """
 
@@ -284,36 +279,3 @@ def check_input_file(input: str | Path, algo: str) -> None:
                         raise RuntimeError(
                             f"Dataset {dataset} not found in input file for model {model}."
                         )
-        # we require constant n_evals for mfmc-prep. In the future, one could look into having uneven number of samples
-        # as long as n_evals of every low fidelity is larger or equal to n_eval of highfidelity model.
-        if algo == "mfmc-prep":
-            model_items = [
-                (name, mod)
-                for name, mod in f["models"].items()
-                if isinstance(mod, h5py.Group)
-            ]
-            n_eval = model_items[0][1].attrs["n_evals"]
-            for _, mod in model_items:
-                if mod.attrs["n_evals"] != n_eval:
-                    raise ValueError(
-                        "To compute the correlation we need the same number of samples from each model!"
-                    )
-        # we require that the high-fidelity model is at least evaluated once and a a decreasing ordering on the number of evaluations for "mfmc".
-        if algo == "mfmc":
-            model_items = [
-                (name, mod)
-                for name, mod in f["models"].items()
-                if isinstance(mod, h5py.Group)
-            ]
-            ordered_models = sorted(
-                model_items, key=lambda x: x[1].attrs["correlation"] ** 2, reverse=True
-            )
-            evals = [mod.attrs["n_evals"] for _, mod in ordered_models]
-            if evals[0] < 1:
-                raise ValueError(
-                    "Increase the budget. The high-fidelity model has to be evaluated at least once."
-                )
-            if not all(evals[i] <= evals[i + 1] for i in range(len(evals) - 1)):
-                raise ValueError(
-                    "Something went wrong with the model selection. The condition on the ratio between cost and weights is not fulfilled."
-                )

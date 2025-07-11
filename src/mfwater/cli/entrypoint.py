@@ -46,4 +46,5 @@ def console_entry_point(argv: Sequence[str] | None = None) -> int:
         return evaluate_estimator(args)
     elif args.algorithm == "mfmc":
         return multifidelity_monte_carlo(args)
-    return 0
+    else:
+        raise ValueError(f"Unknown algorithm: {args.algorithm}")

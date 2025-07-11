@@ -215,7 +215,7 @@ def action_in_range(
 
 
 # custom formatter
-class Formatter(argparse.HelpFormatter):
+class Formatter(argparse.HelpFormatter):  # pragma: no cover
     """
     Custom format for help message.
     """
@@ -311,6 +311,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         ],
         dest="algorithm",
         help="R|Which algorithm to execute.",
+        default=None,
     )
     p.add_argument(
         "-i",
@@ -325,7 +326,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         type=str,
         dest="output",
         metavar="OUTPUT_FILE",
-        default=None,
+        default="default.hdf5",
         help="R|Output file in HDF5 format.",
     )
     p.add_argument(
@@ -339,8 +340,8 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         "--models",
         type=int,
         dest="n_models",
-        default=8,
-        action=action_not_less_than(1),
+        default=6,
+        action=action_not_less_than(2),
         help="R|Number of models to be used.",
     )
     p.add_argument(
@@ -352,15 +353,6 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         help="R|Number of molecules per model. If more than 1 model, supply several values (space separated).",
         nargs="+",
     )
-
-    p.add_argument(
-        "--budget",
-        type=float,
-        dest="budget",
-        default=None,
-        action=action_not_less_than(0),
-        help="R| computational budget required for the estimator.",
-    )
     p.add_argument(
         "--evals",
         type=int,
@@ -369,6 +361,14 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         action=action_not_less_than(1),
         help="R|Number of evaluations per model. If more than 1 model, supply several values (space separated).",
         nargs="+",
+    )
+    p.add_argument(
+        "--budget",
+        type=float,
+        dest="budget",
+        default=0,
+        action=action_not_less_than(0),
+        help="R|Computational budget required for the estimator.",
     )
     p.add_argument(
         "--version",
