@@ -153,7 +153,7 @@ def action_not_more_than(max_value: float = 0.0) -> type[argparse.Action]:
             option_string: str | None = None,
         ) -> None:
             if isinstance(values, (int, float)):
-                values = [values]
+                values = [values]  # pragma: no cover
 
             if any(value > max_value for value in values):
                 p.error(
@@ -199,7 +199,7 @@ def action_in_range(
             option_string: str | None = None,
         ) -> None:
             if isinstance(values, (int, float)):
-                values = [values]
+                values = [values]  # pragma: no cover
 
             if any(value < min_value or value > max_value for value in values):
                 p.error(

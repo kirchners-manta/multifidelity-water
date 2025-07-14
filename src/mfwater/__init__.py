@@ -9,7 +9,7 @@ It is published under the MIT license.
 from .__version__ import __version__
 from .algo_chemical_model import chemical_model_post, chemical_model_prep
 from .algo_eval_estim import evaluate_estimator
-from .algo_input import build_default_input
+from .algo_input import build_default_input, check_input_file
 from .algo_mfmc import multifidelity_monte_carlo
 from .algo_mfmc_preparation import multifidelity_preparation
 from .algo_model_selection import get_ordered_index_combinations, select_optimal_models

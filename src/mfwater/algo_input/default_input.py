@@ -32,13 +32,14 @@ def build_default_input(args: argparse.Namespace) -> int:
         )
         overwrite = input().strip().lower()
         if overwrite != "y":
-            print("Exiting.")
-            return 1
+            raise RuntimeError(
+                f"Not overwriting existing file '{args.output}'. Exiting."
+            )
 
     # default settings for molecules and evaluations
     if args.n_molecules is None:
         args.n_molecules = [
-            2 ** (args.n_models + 4 - i) for i in range(1, args.n_models + 1)
+            2 ** (args.n_models + 5 - i) for i in range(1, args.n_models + 1)
         ]
     if args.n_evals is None:
         args.n_evals = [100 for _ in range(args.n_models)]
@@ -103,12 +104,12 @@ def build_default_input(args: argparse.Namespace) -> int:
     return 0
 
 
-def check_input_file(input: str | Path, algo: str) -> None:
+def check_input_file(input: str | Path | None, algo: str) -> None:
     """Check if the input file exists and is valid.
 
     Parameters
     ----------
-    input : str | Path
+    input : str | Path | None
         The path to the input file.
     algo : str
         The name of the algorithm.
@@ -120,14 +121,14 @@ def check_input_file(input: str | Path, algo: str) -> None:
 
     # check input file
     if input is None:
-        raise RuntimeError("No input file given.")
+        raise ValueError("No input file given.")
     elif Path(input).exists() is False:
         raise FileNotFoundError(f"Input file {input} does not exist.")
 
     if algo in ["chemmodel-post"]:
         # check for the model directory
         if not (Path.cwd() / "models").exists():
-            raise RuntimeError(
+            raise FileNotFoundError(
                 "No models directory found. Run chemical_model_prep first."
             )
 

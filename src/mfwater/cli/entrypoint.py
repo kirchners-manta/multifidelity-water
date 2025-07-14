@@ -47,4 +47,4 @@ def console_entry_point(argv: Sequence[str] | None = None) -> int:
     elif args.algorithm == "mfmc":
         return multifidelity_monte_carlo(args)
     else:
-        raise ValueError(f"Unknown algorithm: {args.algorithm}")
+        raise ValueError(f"Unknown algorithm: {args.algorithm}")  # pragma: no cover
