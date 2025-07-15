@@ -330,6 +330,14 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         help="R|Output file in HDF5 format.",
     )
     p.add_argument(
+        "--params",
+        type=str,
+        dest="params",
+        choices=["lj", "q", "lj-q"],
+        default="lj",
+        help="R|Which parameters to be perturbed in the simulations.\n'lj' for Lennard-Jones parameters, 'q' for partial charges.",
+    )
+    p.add_argument(
         "--orthoboxy",
         default=False,
         help="R|Whether to use tetragonal boxes (in OrthoBoXY shape) for the models.",

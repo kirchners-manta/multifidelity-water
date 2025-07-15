@@ -50,16 +50,34 @@ def chemical_model_prep(args: argparse.Namespace) -> int:
                 if isinstance(f["models"][mod], h5py.Group)
             ]
         )
+
+        # check which parameters to perturb and determine noise on the parameters
+        if args.params in ["lj", "lj-q"]:
+            noise_lj = 1 / 300
+        else:
+            noise_lj = 0.0
+        if args.params in ["q", "lj-q"]:
+            noise_q = 1 / 50
+        else:
+            noise_q = 0
+
         # add datasets of the LJ parameters including Gaussian noise
         f["models"].create_dataset(
             "lj_params",
-            data=sampl_lj_params(np.zeros((2, n_evals), dtype=np.float32)),
+            data=sampl_lj_params(np.zeros((2, n_evals), dtype=np.float32), noise_lj),
         )
         # add packmol and velocity seeds
         # first row is for packmol, second for velocity
         f["models"].create_dataset(
             "seeds",
             data=np.random.randint(1, 100000, size=(2, n_evals), dtype=np.int32),
+        )
+        # add noise on the partial charges
+        f["models"].create_dataset(
+            "charges",
+            data=sampl_partial_charges(
+                np.zeros((2, n_evals), dtype=np.float32), noise_q
+            ),
         )
 
         # now, as the input file is prepared, the LAMMPS input files can be created
@@ -129,7 +147,7 @@ def chemical_model_post(args: argparse.Namespace) -> int:
                 with open(logpath, encoding="utf-8") as lmp:
                     lmplog = lmp.readlines()
 
-                    # check if the LJ parameters actually used are the same as the ones in the input file
+                    # check if the LJ parameters and partial charges actually used are the same as the ones in the input file
                     for line in lmplog:
                         if "pair_coeff    2    2" in line:
                             eps = float(line.split()[3])
@@ -149,6 +167,22 @@ def chemical_model_post(args: argparse.Namespace) -> int:
 
                                 raise ValueError(
                                     f"Error in model {name} evaluation {j}: the LJ parameters used in the simulation are not the same as the ones in the input file.\n Expected {f['models']['lj_params'][0][j-1]} {f['models']['lj_params'][1][j-1]} but got {eps} {sig}"
+                                )
+                        if "set type 1 charge" in line:
+                            q_H = float(line.split()[4])
+                            if not np.allclose(
+                                q_H, f["models"]["charges"][1][j - 1], rtol=1e-5
+                            ):
+                                raise ValueError(
+                                    f"Error in model {name} evaluation {j}: the partial charge of the hydrogen atoms used in the simulation is not the same as the one in the input file.\n Expected {f['models']['charges'][1][j-1]} but got {q_H}"
+                                )
+                        if "set type 2 charge" in line:
+                            q_O = float(line.split()[4])
+                            if not np.allclose(
+                                q_O, f["models"]["charges"][0][j - 1], rtol=1e-5
+                            ):
+                                raise ValueError(
+                                    f"Error in model {name} evaluation {j}: the partial charge of the oxygen atoms used in the simulation is not the same as the one in the input file.\n Expected {f['models']['charges'][0][j-1]} but got {q_O}"
                                 )
                             break
 
@@ -188,7 +222,7 @@ def chemical_model_post(args: argparse.Namespace) -> int:
     return 0
 
 
-def sampl_lj_params(ar: NDArray[np.float32]) -> NDArray[np.float32]:
+def sampl_lj_params(ar: NDArray[np.float32], noise: float) -> NDArray[np.float32]:
     """
     Generate random samples for the Lennard-Jones parameters from a Gaussian distribution.
 
@@ -196,6 +230,8 @@ def sampl_lj_params(ar: NDArray[np.float32]) -> NDArray[np.float32]:
     ----------
     ar : np.ndarray
         The array to fill with random samples.
+    noise : float
+        The amount of noise to add to the samples in multiples of the mean value.
 
     Returns
     -------
@@ -208,13 +244,49 @@ def sampl_lj_params(ar: NDArray[np.float32]) -> NDArray[np.float32]:
     eps_opc3 = 0.68369 * KJ2KCAL  # kcal/mol
 
     # create an array of size n_models x n_evals with random samples
-    # from a Gaussian distribution with mean epsilon/sigma and standard deviation of 1/120 * epsilon  and 1/120 * sigma
-    # this ensures that 99.7% of the samples are within +-2.5 of the values of the standard LJ parameters
+    # from a Gaussian distribution with mean epsilon/sigma and standard deviation of 1/300 * epsilon  and 1/300 * sigma
+    # this ensures that 99.7% of the samples are within +-1.0% of the values of the standard LJ parameters
+
+    # create a random number generator
+    rng = np.random.default_rng()
 
     # the first row will contain the random samples for the epsilon parameter
-    ar[0, :] = np.random.normal(loc=eps_opc3, scale=eps_opc3 / 120, size=ar[0, :].shape)
-    # the second row will contain the random samples for the sigma parameter
-    ar[1, :] = np.random.normal(loc=sig_opc3, scale=sig_opc3 / 120, size=ar[1, :].shape)
+    ar[0, :] = rng.normal(loc=eps_opc3, scale=eps_opc3 * noise, size=ar[0, :].shape)
+    # the second row will contain the random.Generator samples for the sigma parameter
+    ar[1, :] = rng.normal(loc=sig_opc3, scale=sig_opc3 * noise, size=ar[1, :].shape)
+
+    return ar
+
+
+def sampl_partial_charges(ar: NDArray[np.float32], noise: float) -> NDArray[np.float32]:
+    """Generate random samples for the partial charges from a Gaussian distribution.
+
+    Parameters
+    ----------
+    ar : NDArray[np.float32]
+        The array to fill with random samples.
+    noise : float
+        The amount of noise to add to the samples in multiples of the mean value.
+
+    Returns
+    -------
+    NDArray[np.float32]
+        The array with random samples.
+    """
+
+    # The charges of the OPC3 water model are defined as follows:
+    q_O_opc3 = -0.895200  # oxygen
+    # the charge of the hydrogen atoms is -1/2 * q_O_opc3
+    # thus, we perturb the charges of the oxygen atoms only and the hydrogen charges are derived from it
+
+    # create a random number generator
+    rng = np.random.default_rng()
+
+    # fill the array with random samples
+    ar[0, :] = rng.normal(
+        loc=q_O_opc3, scale=abs(q_O_opc3) * noise, size=ar[0, :].shape
+    )
+    ar[1, :] = -0.5 * ar[0, :]  # hydrogen charges are half of the oxygen charge
 
     return ar
 
@@ -280,8 +352,6 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
 
             # create a subdirectory for each evaluation
             for j in range(1, n_evals + 1):
-                # debug
-                # for j in range(1, 4):
 
                 eval_dir = model_dir / f"eval_{j}"
                 eval_dir.mkdir(parents=False, exist_ok=True)
@@ -356,6 +426,14 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                         if "VAR_EPS" in line:
                             lmpinp[k] = (
                                 f"pair_coeff    2    2     {f['models']['lj_params'][0][j-1]:.6f}     {f['models']['lj_params'][1][j-1]:.6f}  # Ow-Ow\n"
+                            )
+                        if "VAR_q_H" in line:
+                            lmpinp[k] = (
+                                f"set type 1 charge {f['models']['charges'][1][j-1]:11.8f}  # Hw\n"
+                            )
+                        if "VAR_q_O" in line:
+                            lmpinp[k] = (
+                                f"set type 2 charge {f['models']['charges'][0][j-1]:11.8f}  # Ow\n"
                             )
                         if "velocity all create" in line:
                             lmpinp[k] = (

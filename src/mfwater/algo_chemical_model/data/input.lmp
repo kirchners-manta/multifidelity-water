@@ -22,6 +22,10 @@ read_data data.lmp
 pair_coeff    1    1     0.000000     0.000000  # Hw Hw
 pair_coeff    2    2     VAR_EPS      VAR_SIG   # Ow Ow
 
+# definition of partial charges
+set type 1 charge VAR_q_H
+set type 2 charge VAR_q_O
+
 ############################################
 
 # remove energy hotspots
