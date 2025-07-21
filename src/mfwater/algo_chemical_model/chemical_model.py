@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import h5py
@@ -190,7 +191,7 @@ def chemical_model_post(args: argparse.Namespace) -> int:
                     for line in lmplog[::-1]:
                         if "Total wall time:" in line:
                             # get the time of the simulation in seconds
-                            time = sum(
+                            simtime = sum(
                                 x * int(t)
                                 for x, t in zip(
                                     [3600, 60, 1], line.split()[-1].split(":")
@@ -201,7 +202,7 @@ def chemical_model_post(args: argparse.Namespace) -> int:
                             n_cpus = int(line.split()[5])
                             break
 
-                comptimes.append(time * n_cpus)
+                comptimes.append(simtime * n_cpus)
 
             # add the computation time to the model
             mod.attrs["computation_time"] = np.mean(comptimes)

@@ -105,10 +105,15 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
         # print(alpha[0])
 
         # save old attributes and datasets, remove deprecated ones
-        models["lj_params_initial"] = models["lj_params"]
-        models["seeds_initial"] = models["seeds"]
-        del models["lj_params"]
-        del models["seeds"]
+        if "lj_params" in models:
+            models["lj_params_initial"] = models["lj_params"]
+            del models["lj_params"]
+        if "seeds" in models:
+            models["seeds_initial"] = models["seeds"]
+            del models["seeds"]
+        if "charges" in models:
+            models["charges_initial"] = models["charges"]
+            del models["charges"]
 
         for k, (_, mod) in enumerate(ordered_models):
 
