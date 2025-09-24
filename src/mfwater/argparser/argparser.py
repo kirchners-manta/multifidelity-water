@@ -349,7 +349,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         type=int,
         dest="n_models",
         default=6,
-        action=action_not_less_than(2),
+        action=action_not_less_than(1),
         help="R|Number of models to be used.",
     )
     p.add_argument(
