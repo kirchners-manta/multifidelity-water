@@ -326,3 +326,8 @@ The `mfmc` algorithm can be executed several times on the same input file, but i
 The generation of input files for LAMMPS involves external software, namely [fftool](https://github.com/paduagroup/fftool) and [packmol](https://m3g.github.io/packmol/).
 After completion of the MD simulation, the diffusion coefficient of water is calculated externally, using [TRAVIS](http://www.travis-analyzer.de/) and [msdiff](https://github.com/kirchners-manta/msdiff).
 For the sake of simplicity, the execution of these programs is not included in the code.
+
+
+## Reference
+
+T. Frömbgen, A. Kuhn, J. Dölz, B. Kirchner, [A Multifidelity Monte Carlo Approach for Simulating the Diffusion Coefficient of Water. I. Forward Problem](https://doi.org/10.1063/5.0308381). *J. Chem. Phys.* **2026**, 164, 024504.
