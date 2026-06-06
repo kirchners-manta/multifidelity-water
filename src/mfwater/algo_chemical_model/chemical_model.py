@@ -7,18 +7,13 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
-import time
 from pathlib import Path
 
 import h5py
 import numpy as np
-from numpy.typing import NDArray
 
 from ..algo_input import check_input_file
-
-# constants
-KJ2KCAL = 0.239006
-NA = 6.022e23  # atoms/mol
+from ..argparser import constants
 
 
 def chemical_model_prep(args: argparse.Namespace) -> int:
@@ -54,13 +49,13 @@ def chemical_model_prep(args: argparse.Namespace) -> int:
 
         # check which parameters to perturb and determine noise on the parameters
         if args.params in ["lj", "lj-q"]:
-            noise_lj = 1 / 300
+            noise_lj = constants.NOISE_LJPARAMS
         else:
             noise_lj = 0.0
         if args.params in ["q", "lj-q"]:
-            noise_q = 1 / 50
+            noise_q = constants.NOISE_CHARGES
         else:
-            noise_q = 0
+            noise_q = 0.0
 
         # add datasets of the LJ parameters including Gaussian noise
         f["models"].create_dataset(
@@ -223,7 +218,7 @@ def chemical_model_post(args: argparse.Namespace) -> int:
     return 0
 
 
-def sampl_lj_params(ar: NDArray[np.float32], noise: float) -> NDArray[np.float32]:
+def sampl_lj_params(ar: np.ndarray, noise: float) -> np.ndarray:
     """
     Generate random samples for the Lennard-Jones parameters from a Gaussian distribution.
 
@@ -239,45 +234,43 @@ def sampl_lj_params(ar: NDArray[np.float32], noise: float) -> NDArray[np.float32
     np.ndarray
         The array with random samples.
     """
-    # define the mean and standard deviation of the Gaussian distribution
-    # from the values of the standard LJ parameters of the OPC3 water model
-    sig_opc3 = 3.17427  # Angstrom
-    eps_opc3 = 0.68369 * KJ2KCAL  # kcal/mol
-
-    # create an array of size n_models x n_evals with random samples
-    # from a Gaussian distribution with mean epsilon/sigma and standard deviation of 1/300 * epsilon  and 1/300 * sigma
-    # this ensures that 99.7% of the samples are within +-1.0% of the values of the standard LJ parameters
 
     # create a random number generator
     rng = np.random.default_rng()
 
     # the first row will contain the random samples for the epsilon parameter
-    ar[0, :] = rng.normal(loc=eps_opc3, scale=eps_opc3 * noise, size=ar[0, :].shape)
+    ar[0, :] = rng.normal(
+        loc=constants.OPC3_EPSILON_OO,
+        scale=constants.OPC3_EPSILON_OO * noise,
+        size=ar[0, :].shape,
+    )
     # the second row will contain the random.Generator samples for the sigma parameter
-    ar[1, :] = rng.normal(loc=sig_opc3, scale=sig_opc3 * noise, size=ar[1, :].shape)
+    ar[1, :] = rng.normal(
+        loc=constants.OPC3_SIGMA_OO,
+        scale=constants.OPC3_SIGMA_OO * noise,
+        size=ar[1, :].shape,
+    )
 
     return ar
 
 
-def sampl_partial_charges(ar: NDArray[np.float32], noise: float) -> NDArray[np.float32]:
+def sampl_partial_charges(ar: np.ndarray, noise: float) -> np.ndarray:
     """Generate random samples for the partial charges from a Gaussian distribution.
 
     Parameters
     ----------
-    ar : NDArray[np.float32]
+    ar : np.ndarray
         The array to fill with random samples.
     noise : float
         The amount of noise to add to the samples in multiples of the mean value.
 
     Returns
     -------
-    NDArray[np.float32]
+    np.ndarray
         The array with random samples.
     """
 
-    # The charges of the OPC3 water model are defined as follows:
-    q_O_opc3 = -0.895200  # oxygen
-    # the charge of the hydrogen atoms is -1/2 * q_O_opc3
+    # The charge of the hydrogen atoms is -1/2 * q_O_opc3
     # thus, we perturb the charges of the oxygen atoms only and the hydrogen charges are derived from it
 
     # create a random number generator
@@ -285,7 +278,9 @@ def sampl_partial_charges(ar: NDArray[np.float32], noise: float) -> NDArray[np.f
 
     # fill the array with random samples
     ar[0, :] = rng.normal(
-        loc=q_O_opc3, scale=abs(q_O_opc3) * noise, size=ar[0, :].shape
+        loc=constants.OPC3_CHARGE_O,
+        scale=abs(constants.OPC3_CHARGE_O) * noise,
+        size=ar[0, :].shape,
     )
     ar[1, :] = -0.5 * ar[0, :]  # hydrogen charges are half of the oxygen charge
 
@@ -371,7 +366,7 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
                 shutil.copy(data_dir / "opc3.ff", sim_dir)
 
                 subprocess.run(
-                    f"cd {sim_dir} && fftool {n} opc3.zmat -b {lx:.6f},{ly:.6f},{lz:.6f}",
+                    f"cd {sim_dir} && fftool {n} opc3.zmat --box {lx:.6f},{ly:.6f},{lz:.6f}",
                     shell=True,
                     check=True,
                     capture_output=True,
@@ -403,7 +398,7 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
 
                 # call fftool again to generate the data files
                 subprocess.run(
-                    f"cd {sim_dir} && fftool {n} opc3.zmat -b {lx:.6f},{ly:.6f},{lz:.6f} -l",
+                    f"cd {sim_dir} && fftool {n} opc3.zmat --box {lx:.6f},{ly:.6f},{lz:.6f} --lmp",
                     shell=True,
                     check=True,
                     capture_output=True,
@@ -464,8 +459,8 @@ def setup_lammps_input(input: str | Path, orthoboxy: bool) -> None:
 def calc_box_size(
     n: int,
     orthoboxy_shape: bool,
-    rho: float = 0.997,
-    m: float = 18.01528,
+    rho: float = constants.WATER_DENSITY_298,
+    m: float = constants.WATER_MASS,
 ) -> list[float]:
     """
     Calculate the box size of an MD simulation box of molecules.
@@ -489,16 +484,13 @@ def calc_box_size(
         The box size in x, y, and z direction in Angstrom.
     """
 
-    # OrthoBoXY ratio of lz/lx = lz/ly
-    RATIO = 2.7933596497
-
     # calculate the volume of the box in cm^3
-    v = n * m / (rho * NA)
+    v = n * m / (rho * constants.NA)
 
     # calculate the box size in Angstrom
     if orthoboxy_shape:
-        lx = ly = (v / RATIO * 1e24) ** (1 / 3)
-        lz = lx * RATIO
+        lx = ly = (v / constants.ORTHOBOXY_RATIO * 1e24) ** (1 / 3)
+        lz = lx * constants.ORTHOBOXY_RATIO
     else:
         lx = ly = lz = (v * 1e24) ** (1 / 3)
 

@@ -252,7 +252,7 @@ FILE_CONTENTS {
  dataset    /models/lj_params_initial
  group      /models/model_1
  attribute  /models/model_1/alpha
- attribute  /models/model_1/computation_time
+ attribute  /models/model_1/computation_time_initial
  attribute  /models/model_1/correlation
  attribute  /models/model_1/mean_initial
  attribute  /models/model_1/n_evals
@@ -303,7 +303,7 @@ FILE_CONTENTS {
  dataset    /models/lj_params_initial
  group      /models/model_1
  attribute  /models/model_1/alpha
- attribute  /models/model_1/computation_time
+ attribute  /models/model_1/computation_time_initial
  attribute  /models/model_1/correlation
  attribute  /models/model_1/mean
  attribute  /models/model_1/mean_initial

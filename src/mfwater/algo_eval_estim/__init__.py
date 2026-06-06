@@ -1,8 +1,3 @@
-"""
-Argparser
-=========
-
-This module computes the number of evaluations for each model.
-"""
+"""Public exports for the evaluation-estimator module."""
 
 from .eval_estim import evaluate_estimator

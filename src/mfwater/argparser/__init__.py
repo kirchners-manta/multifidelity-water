@@ -1,10 +1,6 @@
-"""
-Argparser
-=========
+"""Public argparser utilities for MFWater."""
 
-This module contains a custom argparser for the CLI.
-"""
-
+from . import constants
 from .argparser import (
     action_in_range,
     action_not_less_than,

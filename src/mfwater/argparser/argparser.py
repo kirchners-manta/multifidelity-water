@@ -1,7 +1,5 @@
-# Part of the AIMD setup tool
-
 """
-Parser for command line options.
+Command line parser utilities for MFWater.
 """
 
 #############################################
@@ -9,30 +7,30 @@ Parser for command line options.
 from __future__ import annotations
 
 import argparse
+from numbers import Real
 from pathlib import Path
 from typing import Any
 
 from .. import __version__
 
 
-# file and directory checks
 def is_file(path: str | Path) -> str | Path:
-    """Function to check if a file exists and is not a directory.
+    """Check whether a path points to an existing file.
 
     Parameters
     ----------
     path : str | Path
-        Path to the file.
+        Path to validate.
 
     Returns
     -------
     str | Path
-        Path to the file.
+        The original path if it exists and is not a directory.
 
     Raises
     ------
     argparse.ArgumentTypeError
-        If the file does not exist or is a directory.
+        If the path does not exist or is a directory.
     """
     p = Path(path)
 
@@ -50,22 +48,22 @@ def is_file(path: str | Path) -> str | Path:
 
 
 def is_dir(path: str | Path) -> str | Path:
-    """Function to check if a directory exists and is not a file.
+    """Check whether a path points to an existing directory.
 
     Parameters
     ----------
     path : str | Path
-        Path to the directory.
+        Path to validate.
 
     Returns
     -------
     str | Path
-        Path to the directory.
+        The original path if it exists and is a directory.
 
     Raises
     ------
     argparse.ArgumentTypeError
-        If the directory does not exist or is a file.
+        If the path does not exist or is a file.
     """
     p = Path(path)
 
@@ -82,20 +80,31 @@ def is_dir(path: str | Path) -> str | Path:
     return path
 
 
-# custom actions
 def action_not_less_than(min_value: float = 0.0) -> type[argparse.Action]:
-    """Function to create a custom action for argparse that limits the possible input values.
+    """Create an argparse action that rejects values below a minimum.
 
     Parameters
     ----------
     min_value : float, optional
-        Minimum input value, by default 0.0
+        Minimum accepted value, by default 0.0.
 
     Returns
     -------
     type[argparse.Action]
-        Custom action for argparse.
+        Custom action class that enforces the lower bound.
     """
+
+    def _normalize_values(
+        values: Any,
+    ) -> list[Any]:
+        """Normalize argparse action values to a list."""
+        if values is None:
+            return []
+        if isinstance(values, str):
+            return [values]
+        if isinstance(values, Real):
+            return [values]
+        return list(values)
 
     class CustomActionLessThan(argparse.Action):
         """
@@ -106,39 +115,52 @@ def action_not_less_than(min_value: float = 0.0) -> type[argparse.Action]:
             self,
             p: argparse.ArgumentParser,
             args: argparse.Namespace,
-            values: list[float | int] | float | int,  # type: ignore
+            values: Any,
             option_string: str | None = None,
         ) -> None:
 
-            if isinstance(values, (int, float)):
-                values = [values]
+            normalized_values = _normalize_values(values)
 
-            if any(value < min_value for value in values):
+            if any(value < min_value for value in normalized_values):
                 p.error(
-                    f"Option '{option_string}' takes only values larger than {min_value}. {values} is not accepted."
+                    f"Option '{option_string}' takes only values larger than {min_value}. {normalized_values} is not accepted."
                 )
 
-            if len(values) == 1:
-                values = values[0]
+            if len(normalized_values) == 1:
+                value: float | int | list[float | int] = normalized_values[0]
+            else:
+                value = normalized_values
 
-            setattr(args, self.dest, values)
+            setattr(args, self.dest, value)
 
     return CustomActionLessThan
 
 
 def action_not_more_than(max_value: float = 0.0) -> type[argparse.Action]:
-    """Function to create a custom action for argparse that limits the possible input values.
+    """Create an argparse action that rejects values above a maximum.
 
     Parameters
     ----------
     max_value : float, optional
-        Maximum input value, by default 0.0
+        Maximum accepted value, by default 0.0.
 
     Returns
     -------
     type[argparse.Action]
-        Custom action for argparse.
+        Custom action class that enforces the upper bound.
     """
+
+    def _normalize_values(
+        values: Any,
+    ) -> list[Any]:
+        """Normalize argparse action values to a list."""
+        if values is None:
+            return []
+        if isinstance(values, str):
+            return [values]
+        if isinstance(values, Real):
+            return [values]
+        return list(values)
 
     class CustomActionMoreThan(argparse.Action):
         """
@@ -149,21 +171,22 @@ def action_not_more_than(max_value: float = 0.0) -> type[argparse.Action]:
             self,
             p: argparse.ArgumentParser,
             args: argparse.Namespace,
-            values: list[float | int] | float | int,  # type: ignore
+            values: Any,
             option_string: str | None = None,
         ) -> None:
-            if isinstance(values, (int, float)):
-                values = [values]  # pragma: no cover
+            normalized_values = _normalize_values(values)
 
-            if any(value > max_value for value in values):
+            if any(value > max_value for value in normalized_values):
                 p.error(
-                    f"Option '{option_string}' takes only values smaller than {max_value}. {values} is not accepted."
+                    f"Option '{option_string}' takes only values smaller than {max_value}. {normalized_values} is not accepted."
                 )
 
-            if len(values) == 1:
-                values = values[0]
+            if len(normalized_values) == 1:
+                value: float | int | list[float | int] = normalized_values[0]
+            else:
+                value = normalized_values
 
-            setattr(args, self.dest, values)
+            setattr(args, self.dest, value)
 
     return CustomActionMoreThan
 
@@ -171,20 +194,32 @@ def action_not_more_than(max_value: float = 0.0) -> type[argparse.Action]:
 def action_in_range(
     min_value: float = 0.0, max_value: float = 1.0
 ) -> type[argparse.Action]:
-    """Function to create a custom action for argparse that limits the possible input values.
+    """Create an argparse action that rejects values outside a range.
 
     Parameters
     ----------
     min_value : float, optional
-        Minimum input value, by default 0.0
+        Minimum accepted value, by default 0.0.
     max_value : float, optional
-        maximum, by default 1.0
+        Maximum accepted value, by default 1.0.
 
     Returns
     -------
     type[argparse.Action]
-        Custom action for argparse.
+        Custom action class that enforces the value range.
     """
+
+    def _normalize_values(
+        values: Any,
+    ) -> list[Any]:
+        """Normalize argparse action values to a list."""
+        if values is None:
+            return []
+        if isinstance(values, str):
+            return [values]
+        if isinstance(values, Real):
+            return [values]
+        return list(values)
 
     class CustomActionInRange(argparse.Action):
         """
@@ -195,44 +230,44 @@ def action_in_range(
             self,
             p: argparse.ArgumentParser,
             args: argparse.Namespace,
-            values: list[float | int] | float | int,  # type: ignore
+            values: Any,
             option_string: str | None = None,
         ) -> None:
-            if isinstance(values, (int, float)):
-                values = [values]  # pragma: no cover
+            normalized_values = _normalize_values(values)
 
-            if any(value < min_value or value > max_value for value in values):
+            if any(
+                value < min_value or value > max_value for value in normalized_values
+            ):
                 p.error(
-                    f"Option '{option_string}' takes only values between {min_value} and {max_value}. {values} is not accepted."
+                    f"Option '{option_string}' takes only values between {min_value} and {max_value}. {normalized_values} is not accepted."
                 )
 
-            if len(values) == 1:
-                values = values[0]
+            if len(normalized_values) == 1:
+                value: float | int | list[float | int] = normalized_values[0]
+            else:
+                value = normalized_values
 
-            setattr(args, self.dest, values)
+            setattr(args, self.dest, value)
 
     return CustomActionInRange
 
 
 # custom formatter
 class Formatter(argparse.HelpFormatter):  # pragma: no cover
-    """
-    Custom format for help message.
-    """
+    """Custom help formatter that preserves raw text blocks."""
 
     def _get_help_string(self, action: argparse.Action) -> str | None:
-        """
-        Append default value and type of action to help string.
+        """Append default value information to the help string.
 
         Parameters
         ----------
         action : argparse.Action
-            Command line option.
+            Command line option definition.
 
         Returns
         -------
         str | None
-            Help string.
+            Help string with the default value appended when appropriate.
         """
         helper = action.help
         if helper is not None and "%(default)" not in helper:
@@ -248,21 +283,19 @@ class Formatter(argparse.HelpFormatter):  # pragma: no cover
         return helper
 
     def _split_lines(self, text: str, width: int) -> list[str]:
-        """
-        Re-implementation of `RawTextHelpFormatter._split_lines` that includes
-        line breaks for strings starting with 'R|'.
+        """Split help text while preserving raw-text blocks.
 
         Parameters
         ----------
         text : str
-            Help message.
+            Help message text.
         width : int
-            Text width.
+            Available line width.
 
         Returns
         -------
         list[str]
-            Split text.
+            Wrapped lines.
         """
         if text.startswith("R|"):
             return text[2:].splitlines()
@@ -273,17 +306,23 @@ class Formatter(argparse.HelpFormatter):  # pragma: no cover
 
 # custom parser
 def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
-    """
-    Parses the command line arguments.
+    """Create the MFWater command line parser.
+
+    Parameters
+    ----------
+    name : str, optional
+        Program name reported in help and version output, by default "mfwater".
+    **kwargs : Any
+        Additional keyword arguments forwarded to `argparse.ArgumentParser`.
 
     Returns
     -------
     argparse.ArgumentParser
-        Container for command line arguments.
+        Configured argument parser instance.
     """
 
     p = argparse.ArgumentParser(
-        prog="mfwater",
+        prog=name,
         description="Program to prepare and execute multifidelity water simulations.",
         epilog="Written by Tom Frömbgen, Allan Kuhn, Jürgen Dölz and Barbara Kirchner (University of Bonn, Germany).",
         formatter_class=lambda prog: Formatter(prog, max_help_position=60),
@@ -308,6 +347,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
             "model-select",
             "eval-estimator",
             "mfmc",
+            "markov-chain",
         ],
         dest="algorithm",
         help="R|Which algorithm to execute.",
@@ -330,6 +370,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         help="R|Output file in HDF5 format.",
     )
     p.add_argument(
+        "-p",
         "--params",
         type=str,
         dest="params",
@@ -338,6 +379,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         help="R|Which parameters to be perturbed in the simulations.\n'lj' for Lennard-Jones parameters, 'q' for partial charges.",
     )
     p.add_argument(
+        "-z",
         "--orthoboxy",
         default=False,
         help="R|Whether to use tetragonal boxes (in OrthoBoXY shape) for the models.",
@@ -377,6 +419,29 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         default=0,
         action=action_not_less_than(0),
         help="R|Computational budget required for the estimator.",
+    )
+    p.add_argument(
+        "--mcsamples",
+        type=int,
+        dest="n_mc_samples",
+        default=1000,
+        action=action_not_less_than(1),
+        help="R|Number of samples to be drawn from the Markov Chain.",
+    )
+    p.add_argument(
+        "--mcburnin",
+        type=int,
+        dest="n_mc_burnin",
+        default=100,
+        action=action_not_less_than(0),
+        help="R|Number of burn-in samples to be discarded from the Markov Chain.",
+    )
+    p.add_argument(
+        "--data",
+        type=is_file,
+        dest="data_file",
+        default=None,
+        help="R|Data file CSV format that has measurement data of the diffusion coefficient.\nThe first column should contain the values of the diffusion coefficient, the second column should contain the corresponding uncertainties.",
     )
     p.add_argument(
         "--version",

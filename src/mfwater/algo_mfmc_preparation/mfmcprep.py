@@ -1,6 +1,4 @@
-"""
-Multifidelity Monte Carlo (MFMC) preparation module.
-"""
+"""Prepare input data for the Multifidelity Monte Carlo (MFMC) algorithm."""
 
 import argparse
 
@@ -11,18 +9,17 @@ from ..algo_input import check_input_file
 
 
 def multifidelity_preparation(args: argparse.Namespace) -> int:
-    """
-    Prepares the execution of the multifidelity Monte Carlo (MFMC) algorithm.
+    """Prepare MFMC metadata from the chemical model output.
 
     Parameters:
     ----------
     args : argparse.Namespace
-        The command line arguments
+        The command line arguments.
 
     Returns:
     -------
     int
-        The exit code of the program.
+        Exit code, ``0`` for success.
     """
 
     # check input file

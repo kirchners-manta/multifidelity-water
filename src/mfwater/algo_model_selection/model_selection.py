@@ -1,6 +1,4 @@
-"""
-Select models for the multifidelity Monte Carlo (MFMC) algorithm.
-"""
+"""Select the optimal model subset for the MFMC algorithm."""
 
 import argparse
 import itertools
@@ -12,21 +10,20 @@ from ..algo_input import check_input_file
 
 
 def select_optimal_models(args: argparse.Namespace) -> int:
-    """
-    Given a collection of models, we extract the optimal model subset that accelerates the computation of the expectation.
+    """Select the optimal model subset for estimating the expectation.
 
     Parameters:
     ----------
-    args: argparse.Namespace
-        The command line arguments
+    args : argparse.Namespace
+        The command line arguments.
 
     Returns:
     -------
     int
-        Exit code, 0 for success
+        Exit code, ``0`` for success.
 
     Raises:
-    -------
+    ------
     ValueError
         If the first model does not have a correlation of 1.0.
     """
@@ -162,7 +159,7 @@ def select_optimal_models(args: argparse.Namespace) -> int:
 
 
 def get_ordered_index_combinations(n: int) -> list[tuple[int, ...]]:
-    """Generate all combinations of indices from 1 to n-1. Index 0 is excluded (useful for model selection).
+    """Generate all combinations of indices from 1 to ``n - 1``.
 
     Parameters
     ----------

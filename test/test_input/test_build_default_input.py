@@ -4,12 +4,12 @@ Test the build function for default input file creation.
 
 from __future__ import annotations
 
-import os
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
+import h5py
 import pytest
 
 from mfwater import build_default_input, check_input_file, parser
@@ -127,12 +127,31 @@ def test_check_input_file_exists(tmp_path: Path) -> None:
             check_input_file(None, "mfmc")
 
 
-def test_check_no_models_directory(tmp_path: Path) -> None:
+def test_check_no_models_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test that check_input_file raises an error if no models directory is present."""
     with redirect_stderr(StringIO()), redirect_stdout(StringIO()):
         with pytest.raises(FileNotFoundError):
-            os.chdir(tmp_path)
+            monkeypatch.chdir(tmp_path)
             build_default_input(
                 p.parse_args(["-a", "build", "-o", str(tmp_path / "input.hdf5")])
             )
             check_input_file(tmp_path / "input.hdf5", "chemmodel-post")
+
+
+def test_check_input_file_validates_model_contents(tmp_path: Path) -> None:
+    """Test that check_input_file validates required model-level attributes and datasets."""
+    input_file = tmp_path / "input.hdf5"
+
+    with h5py.File(input_file, "w") as f:
+        models = f.create_group("models")
+        models.attrs["n_models"] = 1
+        models.attrs["last_algo"] = "chemmodel-post"
+        model = models.create_group("model_1")
+        model.attrs["n_evals"] = 10
+        model.attrs["n_molecules"] = 100
+
+    with redirect_stderr(StringIO()), redirect_stdout(StringIO()):
+        with pytest.raises(RuntimeError):
+            check_input_file(input_file, "mfmc-prep")

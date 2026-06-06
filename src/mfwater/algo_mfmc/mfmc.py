@@ -1,6 +1,4 @@
-"""
-Implementation of the Multifidelity Monte Carlo (MFMC) algorithm.
-"""
+"""Implementation of the Multifidelity Monte Carlo (MFMC) algorithm."""
 
 import argparse
 
@@ -11,18 +9,17 @@ from ..algo_input import check_input_file
 
 
 def multifidelity_monte_carlo(args: argparse.Namespace) -> int:
-    """
-    Compute the estimator after everything has run.
+    """Compute the MFMC estimator after preprocessing has finished.
 
     Parameters:
     ----------
-    args: argparse.Namespace
+    args : argparse.Namespace
         The command line arguments, including the input file and algorithm type.
 
     Returns:
     -------
     int
-        Exit code, 0 for success.
+        Exit code, ``0`` for success.
     """
 
     check_input_file(args.input, args.algorithm)
@@ -59,7 +56,9 @@ def multifidelity_monte_carlo(args: argparse.Namespace) -> int:
         correlations = np.array(
             [mod.attrs["correlation"] for _, mod in ordered_models] + [0]
         )
-        weights = np.array([mod.attrs["computation_time"] for _, mod in ordered_models])
+        weights = np.array(
+            [mod.attrs["computation_time_initial"] for _, mod in ordered_models]
+        )
         # debug
         # print(correlations)
         # print(weights)

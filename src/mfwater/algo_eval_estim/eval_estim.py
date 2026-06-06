@@ -1,6 +1,4 @@
-"""
-Compute the number of evaluations given budget to pass to the chemical model again.
-"""
+"""Estimate optimal model evaluations from a given budget."""
 
 import argparse
 
@@ -11,9 +9,9 @@ from ..algo_input import check_input_file
 
 
 def evaluate_estimator(args: argparse.Namespace) -> int:
-    """Given budget, model correlation and weights, this function computes the number of evaluations per model.
+    """Compute the optimal number of evaluations per model.
 
-    Parameters:
+    Parameters
     ----------
     args: argparse.Namespace
         Command line arguments. Budget is required for the computation.
@@ -30,7 +28,7 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
     Returns
     -------
     int
-        0 if the function runs successfully.
+        Exit code, ``0`` for success.
     """
 
     check_input_file(args.input, args.algorithm)
@@ -117,10 +115,11 @@ def evaluate_estimator(args: argparse.Namespace) -> int:
 
         for k, (_, mod) in enumerate(ordered_models):
 
-            # save the old mean, std and diffusion_coeff to be able to compare them later
+            # save the old mean, std and diffusion_coeff and computing times to be able to compare them later
             mod.attrs["mean_initial"] = mod.attrs["mean"]
             mod.attrs["std_initial"] = mod.attrs["std"]
             mod.attrs["n_evals_initial"] = mod.attrs["n_evals"]
+            mod.attrs["computation_time_initial"] = mod.attrs["computation_time"]
             mod["diffusion_coeff_initial"] = mod["diffusion_coeff"]
 
             # and remove deprecated attributes / data sets

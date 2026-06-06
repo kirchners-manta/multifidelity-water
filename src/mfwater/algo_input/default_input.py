@@ -46,7 +46,7 @@ def build_default_input(args: argparse.Namespace) -> int:
 
     # check if the input model specifications are valid
     # number of models / molecules
-    if type(args.n_molecules) is int:
+    if isinstance(args.n_molecules, int):
         args.n_molecules = [args.n_molecules]
     if len(args.n_molecules) != args.n_models:
         raise ValueError(
@@ -62,7 +62,7 @@ def build_default_input(args: argparse.Namespace) -> int:
 
     # evaluations
     # the number of evaluations has to be 0 < m_1 <= m_2 <= ... <= m_n
-    if type(args.n_evals) is int:
+    if isinstance(args.n_evals, int):
         args.n_evals = [args.n_evals]
     if len(args.n_evals) != args.n_models:
         raise ValueError(
@@ -93,7 +93,7 @@ def build_default_input(args: argparse.Namespace) -> int:
         print(f"Input file '{args.output}' created with the following settings:")
         print(f"{'Model':<8}  {'Mols':>7}  {'Evals':>12}")
         print("-" * 31)
-        for _, (name, mod) in enumerate(model_items):
+        for name, mod in model_items:
             print(
                 f"{name:<8}  {mod.attrs['n_molecules']:7d}  {mod.attrs['n_evals']:12d}"
             )
@@ -105,14 +105,14 @@ def build_default_input(args: argparse.Namespace) -> int:
 
 
 def check_input_file(input: str | Path | None, algo: str) -> None:
-    """Check if the input file exists and is valid.
+    """Validate that the input file exists and matches algorithm requirements.
 
     Parameters
     ----------
     input : str | Path | None
-        The path to the input file.
+        Path to the input file.
     algo : str
-        The name of the algorithm.
+        Name of the algorithm to validate against.
 
     Returns
     -------
@@ -125,7 +125,7 @@ def check_input_file(input: str | Path | None, algo: str) -> None:
     elif Path(input).exists() is False:
         raise FileNotFoundError(f"Input file {input} does not exist.")
 
-    if algo in ["chemmodel-post"]:
+    if algo == "chemmodel-post":
         # check for the model directory
         if not (Path.cwd() / "models").exists():
             raise FileNotFoundError(
@@ -236,9 +236,7 @@ def check_input_file(input: str | Path | None, algo: str) -> None:
                     "correlation",
                     "mean",
                     "mean_initial",
-                    "std",
                     "std_initial",
-                    "computation_time",
                     "computation_time_initial",
                 ],
                 "datasets": [
@@ -266,17 +264,19 @@ def check_input_file(input: str | Path | None, algo: str) -> None:
             if attr not in f["models"].attrs.keys():
                 raise RuntimeError(f"Attribute {attr} not found in input file.")
         # check if the models are present
-        for model in f["models"].keys():
+        for model_name, model in f["models"].items():
+            if not isinstance(model, h5py.Group):
+                continue
+
             # check if the model is valid
-            if isinstance(model, h5py.Group):
-                for attr in req_attrs[algo]["models"]["attrs"]:
-                    if attr not in f["models"][model].attrs.keys():
-                        raise RuntimeError(
-                            f"Attribute {attr} not found in input file for model {model}."
-                        )
-                # check if the datasets are present
-                for dataset in req_attrs[algo]["models"]["datasets"]:
-                    if dataset not in f["models"][model].keys():
-                        raise RuntimeError(
-                            f"Dataset {dataset} not found in input file for model {model}."
-                        )
+            for attr in req_attrs[algo]["models"]["attrs"]:
+                if attr not in model.attrs.keys():
+                    raise RuntimeError(
+                        f"Attribute {attr} not found in input file for model {model_name}."
+                    )
+            # check if the datasets are present
+            for dataset in req_attrs[algo]["models"]["datasets"]:
+                if dataset not in model.keys():
+                    raise RuntimeError(
+                        f"Dataset {dataset} not found in input file for model {model_name}."
+                    )
