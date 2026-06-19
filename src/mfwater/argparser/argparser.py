@@ -421,12 +421,12 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         help="R|Computational budget required for the estimator.",
     )
     p.add_argument(
-        "--mcsamples",
+        "--mcchainlength",
         type=int,
-        dest="n_mc_samples",
-        default=1000,
+        dest="n_mc_chain_length",
+        default=10,
         action=action_not_less_than(1),
-        help="R|Number of samples to be drawn from the Markov Chain.",
+        help="R|Maximum number of MC steps (length of the Markov chain) on each fidelity level.\nA random integer between 1 and (including) the specified value will be drawn.",
     )
     p.add_argument(
         "--mcburnin",
@@ -435,13 +435,6 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         default=100,
         action=action_not_less_than(0),
         help="R|Number of burn-in samples to be discarded from the Markov Chain.",
-    )
-    p.add_argument(
-        "--data",
-        type=is_file,
-        dest="data_file",
-        default=None,
-        help="R|Data file CSV format that has measurement data of the diffusion coefficient.\nThe first column should contain the values of the diffusion coefficient, the second column should contain the corresponding uncertainties.",
     )
     p.add_argument(
         "--version",
