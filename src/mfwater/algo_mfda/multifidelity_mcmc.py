@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 from typing import Any
 
 import numpy as np
@@ -15,6 +14,7 @@ def multifidelity_markov_chain(
     initial_sample: np.ndarray,
     markov_chain: np.ndarray,
     proposed_samples: np.ndarray,
+    diff_computed: dict[Any, float],
     molecules: list[int],
     fidelity: int,
     length: int,
@@ -22,7 +22,7 @@ def multifidelity_markov_chain(
     fcount: list[int],
     print_level: int = 0,
     **kwargs: Any,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[int]]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[int], dict[Any, float]]:
     """Generate a Markov chain for a given fidelity level.
 
     Parameters
@@ -33,6 +33,8 @@ def multifidelity_markov_chain(
         The entire Markov chain object, which is initially empty and gets filled with the generated samples for fidelity level specified.
     proposed_samples : np.ndarray
         The object to store the proposed samples for the coarser fidelity level.
+    diff_computed: dict
+        Stores already computed diffusion coefficients along with their number of molecules and parameters.
     molecules: list[int]
         Molecule numbers for each model.
     fidelity : int
@@ -50,12 +52,12 @@ def multifidelity_markov_chain(
 
     Returns
     -------
-    np.ndarray, np.ndarray, np.ndarray, list[int]
-        The generated subchain, entire Markov chain and the proposed samples, as well as the function counter.
+    np.ndarray, np.ndarray, np.ndarray, list[int], dict
+        The generated subchain, entire Markov chain and the proposed samples, as well as the function counter, and the stored diffusion coeffients.
     """
 
+    # initialize variables
     n_models = len(molecules)
-
     current = initial_sample
 
     # store subchain
@@ -75,9 +77,10 @@ def multifidelity_markov_chain(
         # if we are at the lowest fidelity, use chemical Metropolis-Hastings
         if fidelity == n_models - 1:
 
-            subchain_return, markov_chain, fcount = chemical_mh(
+            subchain_return, markov_chain, fcount, diff_computed = chemical_mh(
                 current,
                 markov_chain,
+                diff_computed,
                 molecules[n_models - 1],
                 l,
                 max_length,
@@ -88,11 +91,12 @@ def multifidelity_markov_chain(
         # otherwise, use recursion
         else:
 
-            subchain_return, markov_chain, proposed_samples, fcount = (
+            subchain_return, markov_chain, proposed_samples, fcount, diff_computed = (
                 multifidelity_markov_chain(
                     current,
                     markov_chain,
                     proposed_samples,
+                    diff_computed,
                     molecules,
                     fidelity + 1,
                     l,
@@ -117,11 +121,12 @@ def multifidelity_markov_chain(
         if not np.array_equal(proposal, current):
 
             # compute acceptance probability
-            alpha = acceptance_probability(
+            alpha, diff_computed = acceptance_probability(
                 molecules[fidelity - 1],
                 molecules[fidelity],
                 current,
                 proposal,
+                diff_computed,
                 **kwargs,
             )
 
@@ -148,19 +153,20 @@ def multifidelity_markov_chain(
             f"MFMCMC:     f^{fidelity},  fcount: {fcount},  Chain length: {length}     end."
         )
 
-    return subchain, markov_chain, proposed_samples, fcount
+    return subchain, markov_chain, proposed_samples, fcount, diff_computed
 
 
 def chemical_mh(
     initial_sample: np.ndarray,
     markov_chain: np.ndarray,
+    diff_computed: dict[Any, float],
     mols: int,
     length: int,
     max_length: int,
     fcount: list[int],
     print_level: int = 0,
     **kwargs: Any,
-) -> tuple[np.ndarray, np.ndarray, list[int]]:
+) -> tuple[np.ndarray, np.ndarray, list[int], dict[Any, float]]:
     """Chemical version of the Metropolis Hastings algorithm.
 
     Parameters
@@ -169,6 +175,8 @@ def chemical_mh(
         The sample to start the Markov chain.
     markov_chain : np.ndarray
         The entire Markov chain object, which is initially empty and gets filled with the generated samples for fidelity level specified.
+    diff_computed: dict
+        Stores already computed diffusion coefficients along with their number of molecules and parameters.
     mols: int
         Number of molecules to run MD simulations for.
     length: int
@@ -184,8 +192,8 @@ def chemical_mh(
 
     Returns
     -------
-    np.ndarray, np.ndarray, np.ndarray, list[int]
-        The generated subchain, entire Markov chain and the proposed samples, as well as the function counter.
+    np.ndarray, np.ndarray, np.ndarray, list[int], dict
+        The generated subchain, entire Markov chain and the proposed samples, as well as the function counter and the stored diffusion coefficients.
     """
 
     if print_level == 1:
@@ -205,8 +213,22 @@ def chemical_mh(
         proposal = proposal_kernel(current, **kwargs)
 
         # compute diffusion coefficient for both the current sample and the proposed sample
-        d_proposal = forward_model_dummy(mols, proposal)
-        d_current = forward_model_dummy(mols, current)
+        key = (mols, proposal[0], proposal[1], proposal[2])
+        if key not in diff_computed:
+            d_proposal = forward_model_dummy(mols, proposal)
+            diff_computed[key] = d_proposal
+        else:
+            d_proposal = diff_computed[key]
+
+        key = (mols, current[0], current[1], current[2])
+        if key not in diff_computed:
+            d_current = forward_model_dummy(mols, current)
+            diff_computed[key] = d_current
+        else:
+            d_current = diff_computed[key]
+
+        # d_proposal = forward_model_RBF(mols, proposal)
+        # d_current = forward_model_RBF(mols, current)
 
         # compute acceptance probability
         # use logarithmic formula for numerical stability
@@ -214,7 +236,7 @@ def chemical_mh(
             log_likelihood(d_proposal)
             + log_prior(proposal, **kwargs)
             - log_likelihood(d_current)
-            + log_prior(current, **kwargs)
+            - log_prior(current, **kwargs)
         )
 
         if log_r >= 0:
@@ -247,7 +269,7 @@ def chemical_mh(
             f"ChemicalMH: f^{len(fcount)},  fcount: {fcount},  Chain length: {length}     end."
         )
 
-    return subchain, markov_chain, fcount
+    return subchain, markov_chain, fcount, diff_computed
 
 
 def acceptance_probability(
@@ -255,8 +277,9 @@ def acceptance_probability(
     n_molecules_2: int,
     current_sample: np.ndarray,
     proposal: np.ndarray,
+    diff_computed: dict[Any, float],
     **kwargs: Any,
-) -> float:
+) -> tuple[float, dict[Any, float]]:
     """Compute the acceptance probability for a proposed sample of parameters based on the likelihoods at both fidelity levels.
 
     Parameters
@@ -272,8 +295,8 @@ def acceptance_probability(
 
     Returns
     -------
-    float
-        The acceptance probability for the proposed sample.
+    float, dict
+        The acceptance probability for the proposed sample, and the stored diffusion coefficients.
     """
 
     # iterate over the two fidelity levels and compute the diffusion coefficient for both the current sample and the proposed sample at both fidelity levels, then compute the acceptance probability based on the likelihoods and priors at both fidelity levels
@@ -285,7 +308,16 @@ def acceptance_probability(
 
     for n in range(len(mols)):
         for a in range(len(params)):
-            d = forward_model_dummy(mols[n], params[a])
+
+            key = (mols[n], params[a][0], params[a][1], params[a][2])
+            if key not in diff_computed:
+                d = forward_model_dummy(mols[n], params[a])
+                diff_computed[key] = d
+            else:
+                d = diff_computed[key]
+
+            # d = forward_model_dummy(mols[n], params[a])
+            # d = forward_model_RBF(mols[n], params[a])
             log_like[n, a] = log_likelihood(d)
 
     log_r = log_like[0, 1] + log_like[1, 0] - log_like[0, 0] - log_like[1, 1]
@@ -298,7 +330,7 @@ def acceptance_probability(
     # debug
     # print(f"alpha_AP = {alpha}")
 
-    return alpha
+    return alpha, diff_computed
 
 
 def proposal_kernel(

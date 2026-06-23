@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from ..algo_input import check_input_file
 from ..argparser import constants
@@ -71,6 +73,9 @@ def markov_chain_eval(args: argparse.Namespace) -> int:
     # initialize multiindex that keeps track of how often functions that generate Markov chains are called
     fcount = [0] * args.n_models
 
+    # initialize empty cache to store computed diffusion coefficient and save compute time
+    diff_computed: dict[Any, float] = {}
+
     # start Markov chain at the high-fidelity model
     fidelity = 1
 
@@ -78,16 +83,19 @@ def markov_chain_eval(args: argparse.Namespace) -> int:
     l = np.random.randint(1, args.n_mc_chain_length + 1)
 
     # generate Markov chain
-    _, markov_chain, proposed_samples, fcount = multifidelity_markov_chain(
-        initial_sample,
-        markov_chain,
-        proposed_samples,
-        args.n_molecules,
-        fidelity,
-        l,
-        args.n_mc_chain_length,
-        fcount,
-        kernel_noise=noise_scales,
+    _, markov_chain, proposed_samples, fcount, diff_computed = (
+        multifidelity_markov_chain(
+            initial_sample,
+            markov_chain,
+            proposed_samples,
+            diff_computed,
+            args.n_molecules,
+            fidelity,
+            l,
+            args.n_mc_chain_length,
+            fcount,
+            kernel_noise=noise_scales,
+        )
     )
 
     # how many samples in the Markov chain in have been written on each fidelity level
@@ -119,5 +127,9 @@ def markov_chain_eval(args: argparse.Namespace) -> int:
     print(
         f"\nMFDA-MCMC estimator:                  {mcmc_estim[0]:10.6f} {mcmc_estim[1]:10.6f} {mcmc_estim[2]:10.6f}"
     )
+
+    # debug
+    print(f"Evaluated total of {len(diff_computed)} samples.")
+    # print(diff_computed)
 
     return 0
