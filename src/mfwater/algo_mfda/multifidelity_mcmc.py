@@ -59,8 +59,6 @@ def multifidelity_markov_chain(
     # initialize variables
     n_models = len(molecules)
     current = initial_sample
-
-    # store subchain
     subchain = np.zeros((length, 3), dtype=np.float64)
 
     if print_level == 1:
@@ -213,30 +211,27 @@ def chemical_mh(
         proposal = proposal_kernel(current, **kwargs)
 
         # compute diffusion coefficient for both the current sample and the proposed sample
-        key = (mols, proposal[0], proposal[1], proposal[2])
-        if key not in diff_computed:
-            d_proposal = forward_model_dummy(mols, proposal)
-            diff_computed[key] = d_proposal
-        else:
-            d_proposal = diff_computed[key]
+        coeffs: list[float] = []
+        pair = [proposal, current]
+        for sample in pair:
+            key = (mols, sample[0], sample[1], sample[2])
 
-        key = (mols, current[0], current[1], current[2])
-        if key not in diff_computed:
-            d_current = forward_model_dummy(mols, current)
-            diff_computed[key] = d_current
-        else:
-            d_current = diff_computed[key]
+            # check if sample was already computed and reuse if so
+            if key not in diff_computed:
+                d_sample = forward_model_dummy(mols, sample)
+                diff_computed[key] = d_sample
+            else:
+                d_sample = diff_computed[key]
 
-        # d_proposal = forward_model_RBF(mols, proposal)
-        # d_current = forward_model_RBF(mols, current)
+            coeffs.append(d_sample)
 
         # compute acceptance probability
         # use logarithmic formula for numerical stability
         log_r = (
-            log_likelihood(d_proposal)
-            + log_prior(proposal, **kwargs)
-            - log_likelihood(d_current)
-            - log_prior(current, **kwargs)
+            log_likelihood(coeffs[0])
+            + log_prior(pair[0], **kwargs)
+            - log_likelihood(coeffs[1])
+            - log_prior(pair[1], **kwargs)
         )
 
         if log_r >= 0:
@@ -316,8 +311,6 @@ def acceptance_probability(
             else:
                 d = diff_computed[key]
 
-            # d = forward_model_dummy(mols[n], params[a])
-            # d = forward_model_RBF(mols[n], params[a])
             log_like[n, a] = log_likelihood(d)
 
     log_r = log_like[0, 1] + log_like[1, 0] - log_like[0, 0] - log_like[1, 1]
