@@ -18,7 +18,7 @@ def multifidelity_markov_chain(
     molecules: list[int],
     fidelity: int,
     length: int,
-    max_length: int,
+    max_length: int, #Besser eine liste mit max_length für jede fidelity! Für fidelity 1 sollten wir was großes wählen. Für alle anderen können wir klein sein. 
     fcount: list[int],
     print_level: int = 0,
     **kwargs: Any,
@@ -70,8 +70,7 @@ def multifidelity_markov_chain(
     for j in range(length):
 
         # draw random number for the length of the next Markov chain
-        l = np.random.randint(1, max_length + 1)
-
+        l = np.random.randint(1, max_length + 1) #Sollte l = max[length[fidelity+1]] sein !:)
         # if we are at the lowest fidelity, use chemical Metropolis-Hastings
         if fidelity == n_models - 1:
 
@@ -105,7 +104,7 @@ def multifidelity_markov_chain(
             )
 
         # draw random number
-        num = np.random.randint(0, l)
+        num = np.random.randint(0, l) # richtig hier.
 
         # update proposal
         read_idx = [num, slice(None)]

@@ -33,7 +33,7 @@ def markov_chain_eval(args: argparse.Namespace) -> int:
     # both are of shape n_models x max_subchain_length ** n_models x n_parameters
     # for the proposed samples, the low-fidelity model (first dimension, last entry) will be left empty.
     markov_chain = np.full(
-        (args.n_models, args.n_mc_chain_length**args.n_models, 3),
+        (args.n_models, args.n_mc_chain_length**args.n_models, 3), #n_mc_chain_length müsste zu einer liste werden
         np.nan,
         dtype=np.float64,
     )
@@ -80,7 +80,7 @@ def markov_chain_eval(args: argparse.Namespace) -> int:
     fidelity = 1
 
     # random number for (sub)chain length
-    l = np.random.randint(1, args.n_mc_chain_length + 1)
+    l = np.random.randint(1, args.n_mc_chain_length + 1) # Etwas fixes, großes. 100 oder 1000 samples z.B.
 
     # generate Markov chain
     _, markov_chain, proposed_samples, fcount, diff_computed = (
