@@ -492,7 +492,8 @@ def log_prior(
             )
         else:
             # All parameters are fixed
-            logp = 0.0
+            logp = 0.0 
+            #Das verstehe ich nicht. Also log prior ist 0 wenn sample = means und sonst= -inf. Ist das die implementierung von der dirac maß Dichte? sodass prior = 1 nur wenn die gleich sind ? Man kann das machen, aber dann ergibt Bayesian inversion keinen sinn. 
     else:
         # All parameters vary, use standard Gaussian prior
         logp = np.sum(
