@@ -426,7 +426,16 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         dest="n_mc_chain_length",
         default=10,
         action=action_not_less_than(1),
-        help="R|Maximum number of MC steps (length of the Markov chain) on each fidelity level.\nA random integer between 1 and (including) the specified value will be drawn.",
+        help="R|Fixed number of steps M_1 of the Markov chain on the finest level (level 1).",
+    )
+    p.add_argument(
+        "--mcsubchainlength",
+        type=int,
+        dest="n_mc_subchain_lengths",
+        default=None,
+        action=action_not_less_than(1),
+        nargs="+",
+        help="R|Fixed subchain lengths on the coarser levels 2..n_models (space separated, n_models - 1 values).\nEvery step on level i runs a subchain of this fixed length on level i+1.",
     )
     p.add_argument(
         "--mcburnin",
@@ -434,7 +443,14 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         dest="n_mc_burnin",
         default=100,
         action=action_not_less_than(0),
-        help="R|Number of burn-in samples to be discarded from the Markov Chain.",
+        help="R|Number of burn-in steps B on the finest level. All entries on all levels produced during these steps (including subchains) are discarded.",
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        dest="seed",
+        default=None,
+        help="R|Seed of the random number generator of the Markov chain. If omitted, a random seed is drawn and printed.",
     )
     p.add_argument(
         "--version",
