@@ -18,7 +18,7 @@ def multifidelity_markov_chain(
     molecules: list[int],
     fidelity: int,
     length: int,
-    max_length: int, #Besser eine liste mit max_length für jede fidelity! Für fidelity 1 sollten wir was großes wählen. Für alle anderen können wir klein sein. 
+    max_length: int,  # Allan: Besser eine liste mit max_length für jede fidelity! Für fidelity 1 sollten wir was großes wählen. Für alle anderen können wir klein sein.
     fcount: list[int],
     print_level: int = 0,
     **kwargs: Any,
@@ -70,7 +70,9 @@ def multifidelity_markov_chain(
     for j in range(length):
 
         # draw random number for the length of the next Markov chain
-        l = np.random.randint(1, max_length + 1) #Sollte l = max[length[fidelity+1]] sein !:)
+        l = np.random.randint(
+            1, max_length + 1
+        )  # Allan: Sollte l = max[length[fidelity+1]] sein !:)
         # if we are at the lowest fidelity, use chemical Metropolis-Hastings
         if fidelity == n_models - 1:
 
@@ -104,7 +106,7 @@ def multifidelity_markov_chain(
             )
 
         # draw random number
-        num = np.random.randint(0, l) # richtig hier.
+        num = np.random.randint(0, l)  # Allan: richtig hier.
 
         # update proposal
         read_idx = [num, slice(None)]
@@ -492,8 +494,8 @@ def log_prior(
             )
         else:
             # All parameters are fixed
-            logp = 0.0 
-            #Das verstehe ich nicht. Also log prior ist 0 wenn sample = means und sonst= -inf. Ist das die implementierung von der dirac maß Dichte? sodass prior = 1 nur wenn die gleich sind ? Man kann das machen, aber dann ergibt Bayesian inversion keinen sinn. 
+            logp = 0.0
+            # Allan: Das verstehe ich nicht. Also log prior ist 0 wenn sample = means und sonst= -inf. Ist das die implementierung von der dirac maß Dichte? sodass prior = 1 nur wenn die gleich sind ? Man kann das machen, aber dann ergibt Bayesian inversion keinen sinn.
     else:
         # All parameters vary, use standard Gaussian prior
         logp = np.sum(
