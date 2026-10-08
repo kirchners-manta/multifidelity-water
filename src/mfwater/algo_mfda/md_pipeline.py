@@ -17,7 +17,6 @@ interrupted run) are never reused or deleted.
 
 from __future__ import annotations
 
-import math
 import re
 import shlex
 import shutil
@@ -28,6 +27,7 @@ from pathlib import Path
 import numpy as np
 
 from ..algo_chemical_model.chemical_model import calc_box_size, calc_cpus
+from ..msdiff_io import parse_msdiff_d_raw
 from .forward_model import (
     _check_theta,
     derive_seeds,
@@ -44,6 +44,15 @@ DEFAULT_LAMMPS_CMD = "mpirun -np {ncpu} lmp -i {input}"
 
 #: MSD file written by TRAVIS for water with the template (atom #2, molecule H2O).
 TRAVIS_MSD_FILE = "msd_H2O_#2.csv"
+
+#: MSD files written by TRAVIS with the OrthoBoXY template (x-y plane and z only);
+#: names as in the paper-I scripts (``scripts/pp_subdir_o.sh``).
+TRAVIS_MSD_FILE_XY = "msd_H2O_#2_XY.csv"
+TRAVIS_MSD_FILE_Z = "msd_H2O_#2_Z.csv"
+
+#: msdiff options of paper I: Hummer correction for 298.15 K and a viscosity of
+#: 0.89e-3 kg/(m s) with zero uncertainty. Needed to be comparable to paper-I data.
+PAPER_I_MSDIFF_ARGS = ("--hummer", "298.15", "0.89e-3", "0.0")
 
 #: msdiff reports D in 1e-12 m^2/s; the likelihood uses 1e-9 m^2/s.
 MSDIFF_TO_NANO = 1.0e-3
@@ -161,14 +170,11 @@ def write_lammps_input(
 
 
 def parse_msdiff_output(path: Path) -> float:
-    """Read the diffusion coefficient from ``msdiff_out.csv``.
+    """Read the diffusion coefficient from ``msdiff_out.csv`` in 1e-9 m^2/s.
 
-    Two formats exist. Older msdiff (paper I) writes
-    ``D / 10^-12 m^2/s, delta_D / ..., K / ...`` with D in column 0 and no species
-    column; current msdiff writes ``Species, D_0 / 10^-12 m^2/s, ...``. The column
-    is located by header (``D_0 /`` or ``D /``; not ``D_z`` or ``delta_D``), the
-    unit is checked, and the value of the last row is converted to 1e-9 m^2/s.
-    The Hummer term K is never added.
+    Thin wrapper around :func:`mfwater.msdiff_io.parse_msdiff_d_raw` (which
+    handles both msdiff layouts and returns 1e-12 m^2/s) that converts to the
+    unit of the likelihood.
 
     Parameters
     ----------
@@ -185,20 +191,7 @@ def parse_msdiff_output(path: Path) -> float:
     RuntimeError
         If the file is malformed, has an unexpected unit, or D is not finite.
     """
-    lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    if len(lines) < 2:
-        raise RuntimeError(f"{path} contains no data rows.")
-    header = [h.strip() for h in lines[0].split(",")]
-    cols = [i for i, h in enumerate(header) if h.startswith(("D_0 /", "D /"))]
-    if len(cols) != 1 or "10^-12 m^2/s" not in header[cols[0]]:
-        raise RuntimeError(
-            f"Unexpected msdiff header in {path}: {header}. Expected a column "
-            "'D_0 / 10^-12 m^2/s' or 'D / 10^-12 m^2/s'."
-        )
-    value = float(lines[-1].split(",")[cols[0]].strip()) * MSDIFF_TO_NANO
-    if not math.isfinite(value):
-        raise RuntimeError(f"Non-finite diffusion coefficient in {path}.")
-    return value
+    return parse_msdiff_d_raw(path) * MSDIFF_TO_NANO
 
 
 class MDForwardModel:
@@ -219,25 +212,23 @@ class MDForwardModel:
         Use the same directory as the cache of
         :class:`mfwater.algo_mfda.cache.CachedForwardModel`.
     orthoboxy : bool, optional
-        Tetragonal OrthoBoXY boxes. Not supported yet (TRAVIS/msdiff need a
-        different analysis), so True raises ``NotImplementedError``.
+        Tetragonal OrthoBoXY boxes (``calc_box_size(n, orthoboxy_shape=True)``).
+        TRAVIS then uses ``travis_input_msd_orthoboxy.txt`` (two MSD
+        observations, x-y and z) and msdiff is called with ``--orthoboxy``.
     lammps_cmd : str, optional
         Command template with ``{ncpu}`` and ``{input}``.
     travis_template : str | Path | None, optional
-        TRAVIS input file; default is the template in the package.
-    msdiff_args : Sequence[str], optional
-        Extra msdiff arguments, e.g. ``("--hummer", "298.15", "0.00089")``.
-        The box length (``-l``) is added automatically for cubic boxes.
+        TRAVIS input file; default is the cubic or OrthoBoXY template in the
+        package, depending on ``orthoboxy``.
+    msdiff_args : Sequence[str] | None, optional
+        msdiff arguments besides ``-f``, ``--from-travis`` and ``--orthoboxy``.
+        Default is the paper-I call, :data:`PAPER_I_MSDIFF_ARGS`. The box
+        length is read by msdiff from ``travis.log`` (``--from-travis``).
 
     Attributes
     ----------
     last_attempt_dir : Path | None
         Attempt directory of the most recent call.
-
-    Raises
-    ------
-    NotImplementedError
-        If ``orthoboxy`` is True.
     """
 
     def __init__(
@@ -246,21 +237,24 @@ class MDForwardModel:
         orthoboxy: bool = False,
         lammps_cmd: str = DEFAULT_LAMMPS_CMD,
         travis_template: str | Path | None = None,
-        msdiff_args: Sequence[str] = (),
+        msdiff_args: Sequence[str] | None = None,
     ) -> None:
-        if orthoboxy:
-            raise NotImplementedError(
-                "OrthoBoXY boxes are not supported by the MD forward model yet."
-            )
         self.work_dir_root = Path(work_dir_root)
         self.orthoboxy = orthoboxy
         self.lammps_cmd = lammps_cmd
         self.travis_template = (
             Path(travis_template)
             if travis_template is not None
-            else TEMPLATE_DIR / "travis_input_msd.txt"
+            else TEMPLATE_DIR
+            / (
+                "travis_input_msd_orthoboxy.txt"
+                if orthoboxy
+                else "travis_input_msd.txt"
+            )
         )
-        self.msdiff_args = tuple(msdiff_args)
+        self.msdiff_args = tuple(
+            PAPER_I_MSDIFF_ARGS if msdiff_args is None else msdiff_args
+        )
         self.last_attempt_dir: Path | None = None
 
     def _required_programs(self) -> list[str]:
@@ -338,8 +332,7 @@ class MDForwardModel:
             TEMPLATE_DIR / "input.lmp", siminp / "input.lmp", theta, velocity_seed
         )
         self._run_lammps(n_molecules, simout)
-        lx = calc_box_size(n_molecules, orthoboxy_shape=self.orthoboxy)[0]
-        return self._analyse(msd, lx)
+        return self._analyse(msd)
 
     def _build_box(self, n: int, siminp: Path, packmol_seed: int) -> None:
         """Create the LAMMPS data file with fftool and packmol.
@@ -399,15 +392,16 @@ class MDForwardModel:
         if not (simout / "prod.lammpstrj").exists():
             raise RuntimeError(f"LAMMPS did not write {simout / 'prod.lammpstrj'}.")
 
-    def _analyse(self, msd: Path, lx_angstrom: float) -> float:
-        """Run TRAVIS and msdiff and parse D.
+    def _analyse(self, msd: Path) -> float:
+        """Run TRAVIS and msdiff (as in paper I) and parse D.
+
+        msdiff reads the box lengths from ``travis.log`` in ``msd`` (the stdout
+        of TRAVIS), so no box length is passed.
 
         Parameters
         ----------
         msd : Path
             Analysis directory.
-        lx_angstrom : float
-            Cubic box edge length in Angstrom.
 
         Returns
         -------
@@ -417,7 +411,7 @@ class MDForwardModel:
         Raises
         ------
         RuntimeError
-            If TRAVIS produces no unique ``msd_*.csv`` or msdiff fails.
+            If TRAVIS does not write the expected MSD file(s) or msdiff fails.
         """
         shutil.copy(self.travis_template, msd / "travis_input_msd.txt")
         # TRAVIS is serial: call it directly, never through mpirun.
@@ -431,37 +425,45 @@ class MDForwardModel:
             ],
             msd,
             "travis",
-            stdout_name="travis.log",  # same name as in the user's own runs
+            stdout_name="travis.log",  # msdiff --from-travis reads this file
         )
-        msd_file = find_travis_msd_file(msd)
-        # msdiff expects the box length in pm; no Hummer correction unless the
-        # user passes --hummer via msdiff_args.
-        _run(
-            [
+        if self.orthoboxy:
+            xy_file = find_travis_msd_file(msd, TRAVIS_MSD_FILE_XY)
+            z_file = find_travis_msd_file(msd, TRAVIS_MSD_FILE_Z)
+            msdiff_cmd = [
+                "msdiff",
+                "-f",
+                xy_file.name,
+                "--from-travis",
+                *self.msdiff_args,
+                "--orthoboxy",
+                z_file.name,
+            ]
+        else:
+            msd_file = find_travis_msd_file(msd, TRAVIS_MSD_FILE)
+            msdiff_cmd = [
                 "msdiff",
                 "-f",
                 msd_file.name,
-                "-l",
-                f"{lx_angstrom * 100.0:.4f}",
+                "--from-travis",
                 *self.msdiff_args,
-            ],
-            msd,
-            "msdiff",
-        )
+            ]
+        _run(msdiff_cmd, msd, "msdiff")
         return parse_msdiff_output(msd / "msdiff_out.csv")
 
 
-def find_travis_msd_file(msd: Path) -> Path:
-    """Locate the MSD table written by TRAVIS.
+def find_travis_msd_file(msd: Path, name: str = TRAVIS_MSD_FILE) -> Path:
+    """Locate an MSD table written by TRAVIS.
 
-    TRAVIS writes ``msd_H2O_#2.csv`` (the MSD) and ``msd_H2O_#2_fit.csv``
-    (regression curve) into its working directory; only the former is used and
-    the latter is left untouched.
+    TRAVIS also writes ``*_fit.csv`` (regression curves) into its working
+    directory; those are left untouched and never used.
 
     Parameters
     ----------
     msd : Path
         Analysis directory.
+    name : str, optional
+        File name, default ``TRAVIS_MSD_FILE`` (cubic box).
 
     Returns
     -------
@@ -471,9 +473,9 @@ def find_travis_msd_file(msd: Path) -> Path:
     Raises
     ------
     RuntimeError
-        If ``TRAVIS_MSD_FILE`` does not exist in ``msd``.
+        If ``name`` does not exist in ``msd``.
     """
-    path = msd / TRAVIS_MSD_FILE
+    path = msd / name
     if not path.is_file():
         raise RuntimeError(
             f"TRAVIS did not write {path}; found {sorted(p.name for p in msd.iterdir())}."

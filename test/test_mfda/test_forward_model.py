@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-
+from mfwater.algo_chemical_model.chemical_model import calc_box_size
 from mfwater.algo_mfda import cache as cache_mod
 from mfwater.algo_mfda import md_pipeline
 from mfwater.algo_mfda.cache import CachedForwardModel
@@ -22,6 +22,7 @@ from mfwater.algo_mfda.forward_model import (
     key_hash,
 )
 from mfwater.algo_mfda.md_pipeline import MDForwardModel, parse_msdiff_output
+from mfwater.argparser import constants
 
 THETA = np.array([0.1634, 3.17427, -0.8952])
 
@@ -207,9 +208,18 @@ def test_md_pipeline_layout_and_units(tmp_path: Path, fake_md: list[Any]) -> Non
     assert lammps_args[:3] == ["mpirun", "-np", "2"]
     assert lammps_args[-1] == "../siminp/input.lmp"
     msdiff_args, _ = fake_md[5]
-    # cubic box of 100 molecules: edge ~14.4 A = ~1440 pm
-    assert msdiff_args[:3] == ["msdiff", "-f", "msd_H2O_#2.csv"]
-    assert 1400 < float(msdiff_args[4]) < 1500
+    # paper-I call; box length comes from travis.log, no explicit -l
+    assert msdiff_args == [
+        "msdiff",
+        "-f",
+        "msd_H2O_#2.csv",
+        "--from-travis",
+        "--hummer",
+        "298.15",
+        "0.89e-3",
+        "0.0",
+    ]
+    assert "-l" not in msdiff_args
     assert "seed" in (attempt / "siminp" / "pack.inp").read_text()
 
 
@@ -326,18 +336,115 @@ def test_custom_lammps_cmd_and_msdiff_args(
     model = MDForwardModel(
         tmp_path,
         lammps_cmd="mpirun --bind-to none -np {ncpu} lmp -i {input}",
-        msdiff_args=["--hummer", "298.15", "0.00089"],
+        msdiff_args=["--hummer", "330", "0.00089"],
     )
     model(1000, THETA)
     lammps = next(c[0] for c in calls if c[0][0] == "mpirun")
     assert lammps[:5] == ["mpirun", "--bind-to", "none", "-np", "6"]
     msdiff = next(c[0] for c in calls if c[0][0] == "msdiff")
-    assert msdiff[-3:] == ["--hummer", "298.15", "0.00089"]
+    assert msdiff[-3:] == ["--hummer", "330", "0.00089"]
+    assert "--from-travis" in msdiff
 
 
-def test_orthoboxy_not_supported(tmp_path: Path) -> None:
-    with pytest.raises(NotImplementedError):
-        MDForwardModel(tmp_path, orthoboxy=True)
+# ------------------------------------------------------------------- OrthoBoXY
+ORTHO_FILES = ("msd_H2O_#2_XY.csv", "msd_H2O_#2_Z.csv", "msd_H2O_#2_XY_fit.csv")
+
+
+def _orthoboxy_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **kwargs: Any
+) -> tuple[MDForwardModel, list[Any]]:
+    calls: list[Any] = []
+    monkeypatch.setattr(md_pipeline.shutil, "which", lambda p: f"/bin/{p}")
+    monkeypatch.setattr(md_pipeline.subprocess, "run", make_fake_run(calls, **kwargs))
+    return MDForwardModel(tmp_path, orthoboxy=True), calls
+
+
+def test_orthoboxy_box_and_msdiff_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model, calls = _orthoboxy_run(tmp_path, monkeypatch, travis_files=ORTHO_FILES)
+    d = model(100, THETA)
+    assert d == pytest.approx(2.5)
+
+    lx, ly, lz = calc_box_size(100, orthoboxy_shape=True)
+    assert lx == ly and lz / lx == pytest.approx(constants.ORTHOBOXY_RATIO)
+    fftool = calls[0][0]
+    assert fftool[fftool.index("--box") + 1] == f"{lx:.6f},{ly:.6f},{lz:.6f}"
+    assert model.last_attempt_dir is not None
+    pack = (model.last_attempt_dir / "siminp" / "pack.inp").read_text()
+    assert f"{lx - 0.5:.6f} {ly - 0.5:.6f} {lz - 0.5:.6f}" in pack
+
+    msdiff = next(c[0] for c in calls if c[0][0] == "msdiff")
+    assert msdiff == [
+        "msdiff",
+        "-f",
+        "msd_H2O_#2_XY.csv",
+        "--from-travis",
+        "--hummer",
+        "298.15",
+        "0.89e-3",
+        "0.0",
+        "--orthoboxy",
+        "msd_H2O_#2_Z.csv",
+    ]
+    assert "-l" not in msdiff
+
+
+def test_orthoboxy_travis_template_is_verbatim_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model, _ = _orthoboxy_run(tmp_path, monkeypatch, travis_files=ORTHO_FILES)
+    model(100, THETA)
+    assert model.last_attempt_dir is not None
+    used = (model.last_attempt_dir / "msd" / "travis_input_msd.txt").read_bytes()
+    template = md_pipeline.TEMPLATE_DIR / "travis_input_msd_orthoboxy.txt"
+    assert used == template.read_bytes()
+    # two MSD observations (x-y and z) and the blank lines are preserved
+    assert b"Add another observation (y/n)? [no] \ny\n" in used
+    assert b"\n\n" in used
+    assert used != (md_pipeline.TEMPLATE_DIR / "travis_input_msd.txt").read_bytes()
+
+
+def test_cubic_uses_cubic_template(tmp_path: Path, fake_md: list[Any]) -> None:
+    model = MDForwardModel(tmp_path)
+    model(100, THETA)
+    assert model.last_attempt_dir is not None
+    used = (model.last_attempt_dir / "msd" / "travis_input_msd.txt").read_bytes()
+    assert used == (md_pipeline.TEMPLATE_DIR / "travis_input_msd.txt").read_bytes()
+
+
+@pytest.mark.parametrize("missing", ["msd_H2O_#2_XY.csv", "msd_H2O_#2_Z.csv"])
+def test_orthoboxy_missing_travis_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing: str
+) -> None:
+    files = tuple(f for f in ORTHO_FILES if f != missing)
+    model, calls = _orthoboxy_run(tmp_path, monkeypatch, travis_files=files)
+    with pytest.raises(RuntimeError, match="msd_H2O"):
+        model(100, THETA)
+    assert not any(c[0][0] == "msdiff" for c in calls)
+
+
+def test_orthoboxy_flag_in_result_and_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model, _ = _orthoboxy_run(tmp_path, monkeypatch, travis_files=ORTHO_FILES)
+    d = CachedForwardModel(model, tmp_path)(100, THETA)
+    entry = CachedForwardModel(model, tmp_path).entry_dir(100, THETA)
+    assert json.loads((entry / "result.json").read_text())["orthoboxy"] is True
+
+    # same wrapper type with the matching flag: cache hit
+    assert CachedForwardModel(model, tmp_path)(100, THETA) == d
+    # cubic model on an OrthoBoXY cache: error
+    with pytest.raises(ValueError, match="orthoboxy"):
+        CachedForwardModel(MDForwardModel(tmp_path), tmp_path)(100, THETA)
+
+
+def test_cache_flag_none_for_models_without_flag(tmp_path: Path) -> None:
+    cached = CachedForwardModel(Counting(), tmp_path)
+    cached(100, THETA)
+    data = json.loads((cached.entry_dir(100, THETA) / "result.json").read_text())
+    assert data["orthoboxy"] is None
+    assert CachedForwardModel(Counting(), tmp_path)(100, THETA) == pytest.approx(1.6)
 
 
 def test_parse_msdiff_rejects_unknown_unit(tmp_path: Path) -> None:

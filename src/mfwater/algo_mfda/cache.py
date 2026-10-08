@@ -112,7 +112,9 @@ class CachedForwardModel:
         entry = self.entry_dir(n_molecules, theta)
         result_file = entry / "result.json"
         if result_file.exists():
-            d = self._read_result(result_file, key)
+            d = self._read_result(
+                result_file, key, getattr(self.model, "orthoboxy", None)
+            )
             self._memo[key] = d
             self.n_hits += 1
             return d
@@ -131,7 +133,11 @@ class CachedForwardModel:
         return d
 
     @staticmethod
-    def _read_result(path: Path, key: tuple[int, str, str, str]) -> float:
+    def _read_result(
+        path: Path,
+        key: tuple[int, str, str, str],
+        orthoboxy: bool | None = None,
+    ) -> float:
         """Read and validate a stored result.
 
         Parameters
@@ -140,6 +146,10 @@ class CachedForwardModel:
             Path of ``result.json``.
         key : tuple[int, str, str, str]
             Expected evaluation key.
+        orthoboxy : bool | None, optional
+            Box-shape flag of the wrapped model (``None`` if it has none). The
+            key does not contain the box shape, so a differing stored flag means
+            the cache directory is mixed between cubic and OrthoBoXY runs.
 
         Returns
         -------
@@ -149,7 +159,8 @@ class CachedForwardModel:
         Raises
         ------
         ValueError
-            If the file does not belong to ``key`` (hash collision or manual edit).
+            If the file does not belong to ``key`` (hash collision or manual
+            edit) or its stored ``orthoboxy`` flag differs from ``orthoboxy``.
         """
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
@@ -161,6 +172,13 @@ class CachedForwardModel:
         )
         if tuple(stored) != key:
             raise ValueError(f"Cache entry {path} does not match key {key}.")
+        stored_ob = data.get("orthoboxy")  # absent in results of older versions
+        if orthoboxy is not None and stored_ob is not None and stored_ob != orthoboxy:
+            raise ValueError(
+                f"Cache entry {path} was computed with orthoboxy={stored_ob}, but "
+                f"the forward model uses orthoboxy={orthoboxy}. Use a separate "
+                "cache directory per box shape."
+            )
         return float(data["D"])
 
     def _write_result(
@@ -200,6 +218,7 @@ class CachedForwardModel:
             "theta_hex": {"epsilon": key[1], "sigma": key[2], "q_O": key[3]},
             "key_hash": key_hash(key),
             "seeds": {"packmol": packmol_seed, "velocity": velocity_seed},
+            "orthoboxy": getattr(self.model, "orthoboxy", None),
             "wall_time_s": wall_time,
             "attempt_dir": None if attempt is None else str(attempt),
         }
