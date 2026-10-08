@@ -42,6 +42,9 @@ TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "algo_chemical_model" / 
 #: ``simout/`` and reads ``../siminp/input.lmp``.
 DEFAULT_LAMMPS_CMD = "mpirun -np {ncpu} lmp -i {input}"
 
+#: MSD file written by TRAVIS for water with the template (atom #2, molecule H2O).
+TRAVIS_MSD_FILE = "msd_H2O_#2.csv"
+
 #: msdiff reports D in 1e-12 m^2/s; the likelihood uses 1e-9 m^2/s.
 MSDIFF_TO_NANO = 1.0e-3
 
@@ -51,6 +54,7 @@ def _run(
     cwd: Path,
     log_name: str,
     stdin_file: Path | None = None,
+    stdout_name: str | None = None,
 ) -> None:
     """Run an external program, logging stdout/stderr to files.
 
@@ -66,13 +70,16 @@ def _run(
     stdin_file : Path | None, optional
         File to feed to stdin. If None, stdin is closed so that interactive
         programs fail instead of hanging.
+    stdout_name : str | None, optional
+        File name for captured stdout instead of ``<log_name>.out`` (e.g.
+        ``travis.log``).
 
     Raises
     ------
     RuntimeError
         If the program fails.
     """
-    out_path = cwd / f"{log_name}.out"
+    out_path = cwd / (stdout_name or f"{log_name}.out")
     err_path = cwd / f"{log_name}.err"
     stdin_handle = open(stdin_file, encoding="utf-8") if stdin_file else None
     try:
@@ -156,9 +163,12 @@ def write_lammps_input(
 def parse_msdiff_output(path: Path) -> float:
     """Read the diffusion coefficient from ``msdiff_out.csv``.
 
-    msdiff (0.3.x) writes the header ``Species, D_0 / 10^-12 m^2/s, delta_D, ...``
-    and one row per species. The column is located by its header and the unit is
-    checked; the value of the last row is converted to 1e-9 m^2/s.
+    Two formats exist. Older msdiff (paper I) writes
+    ``D / 10^-12 m^2/s, delta_D / ..., K / ...`` with D in column 0 and no species
+    column; current msdiff writes ``Species, D_0 / 10^-12 m^2/s, ...``. The column
+    is located by header (``D_0 /`` or ``D /``; not ``D_z`` or ``delta_D``), the
+    unit is checked, and the value of the last row is converted to 1e-9 m^2/s.
+    The Hummer term K is never added.
 
     Parameters
     ----------
@@ -168,7 +178,7 @@ def parse_msdiff_output(path: Path) -> float:
     Returns
     -------
     float
-        Diffusion coefficient in 1e-9 m^2/s.
+        Diffusion coefficient D_0 in 1e-9 m^2/s.
 
     Raises
     ------
@@ -179,11 +189,11 @@ def parse_msdiff_output(path: Path) -> float:
     if len(lines) < 2:
         raise RuntimeError(f"{path} contains no data rows.")
     header = [h.strip() for h in lines[0].split(",")]
-    cols = [i for i, h in enumerate(header) if h.startswith("D_0")]
+    cols = [i for i, h in enumerate(header) if h.startswith(("D_0 /", "D /"))]
     if len(cols) != 1 or "10^-12 m^2/s" not in header[cols[0]]:
         raise RuntimeError(
             f"Unexpected msdiff header in {path}: {header}. Expected a column "
-            "'D_0 / 10^-12 m^2/s'."
+            "'D_0 / 10^-12 m^2/s' or 'D / 10^-12 m^2/s'."
         )
     value = float(lines[-1].split(",")[cols[0]].strip()) * MSDIFF_TO_NANO
     if not math.isfinite(value):
@@ -410,6 +420,7 @@ class MDForwardModel:
             If TRAVIS produces no unique ``msd_*.csv`` or msdiff fails.
         """
         shutil.copy(self.travis_template, msd / "travis_input_msd.txt")
+        # TRAVIS is serial: call it directly, never through mpirun.
         _run(
             [
                 "travis",
@@ -420,6 +431,7 @@ class MDForwardModel:
             ],
             msd,
             "travis",
+            stdout_name="travis.log",  # same name as in the user's own runs
         )
         msd_file = find_travis_msd_file(msd)
         # msdiff expects the box length in pm; no Hummer correction unless the
@@ -442,8 +454,9 @@ class MDForwardModel:
 def find_travis_msd_file(msd: Path) -> Path:
     """Locate the MSD table written by TRAVIS.
 
-    TRAVIS names it ``msd_<molecule>_<atoms>.csv`` (e.g. ``msd_H2O_#2.csv``;
-    exact name not verified for this setup), so the file is found by pattern.
+    TRAVIS writes ``msd_H2O_#2.csv`` (the MSD) and ``msd_H2O_#2_fit.csv``
+    (regression curve) into its working directory; only the former is used and
+    the latter is left untouched.
 
     Parameters
     ----------
@@ -458,12 +471,11 @@ def find_travis_msd_file(msd: Path) -> Path:
     Raises
     ------
     RuntimeError
-        If there is not exactly one ``msd_*.csv`` file.
+        If ``TRAVIS_MSD_FILE`` does not exist in ``msd``.
     """
-    found = sorted(msd.glob("msd_*.csv"))
-    if len(found) != 1:
+    path = msd / TRAVIS_MSD_FILE
+    if not path.is_file():
         raise RuntimeError(
-            f"Expected exactly one TRAVIS output 'msd_*.csv' in {msd}, found "
-            f"{[p.name for p in found]}."
+            f"TRAVIS did not write {path}; found {sorted(p.name for p in msd.iterdir())}."
         )
-    return found[0]
+    return path

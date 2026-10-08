@@ -142,7 +142,7 @@ MSDIFF_CSV = (
 def make_fake_run(
     calls: list[Any],
     fail_on: str | None = None,
-    travis_files: tuple[str, ...] = ("msd_H2O_#2.csv",),
+    travis_files: tuple[str, ...] = ("msd_H2O_#2.csv", "msd_H2O_#2_fit.csv"),
 ) -> Any:
     """Return a replacement for ``subprocess.run`` that fakes all programs."""
 
@@ -278,12 +278,41 @@ def test_missing_program(
     assert not any(tmp_path.iterdir())  # nothing created before the check
 
 
+DATA_DIR = Path(__file__).parent / "data"
+
+
+def test_parse_msdiff_old_format() -> None:
+    # real output of the older msdiff used in paper I; K (889) must not be added
+    d = parse_msdiff_output(DATA_DIR / "msdiff_out_old.csv")
+    assert d == pytest.approx(1.20928281695)
+
+
+def test_parse_msdiff_new_format(tmp_path: Path) -> None:
+    f = tmp_path / "msdiff_out.csv"
+    f.write_text(MSDIFF_CSV)
+    assert parse_msdiff_output(f) == pytest.approx(2.5)
+
+
+def test_stray_fit_file_ignored(tmp_path: Path) -> None:
+    (tmp_path / "msd_H2O_#2.csv").write_text("msd")
+    (tmp_path / "msd_H2O_#2_fit.csv").write_text("fit")
+    assert md_pipeline.find_travis_msd_file(tmp_path).name == "msd_H2O_#2.csv"
+    assert (tmp_path / "msd_H2O_#2_fit.csv").read_text() == "fit"
+
+
+def test_travis_serial_and_log(tmp_path: Path, fake_md: list[Any]) -> None:
+    MDForwardModel(tmp_path)(100, THETA)
+    travis = next(c for c in fake_md if c[0][0] == "travis")
+    assert travis[0][0] == "travis"  # no mpirun wrapper
+    assert (travis[1] / "travis.log").exists()
+
+
 def test_missing_travis_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(md_pipeline.shutil, "which", lambda p: f"/bin/{p}")
     monkeypatch.setattr(
         md_pipeline.subprocess, "run", make_fake_run([], travis_files=())
     )
-    with pytest.raises(RuntimeError, match="msd_"):
+    with pytest.raises(RuntimeError, match="msd_H2O"):
         MDForwardModel(tmp_path)(100, THETA)
 
 
