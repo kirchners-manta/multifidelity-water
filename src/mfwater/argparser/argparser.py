@@ -348,6 +348,8 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
             "eval-estimator",
             "mfmc",
             "markov-chain",
+            "mfda-smoke",
+            "mfda-ncpu",
         ],
         dest="algorithm",
         help="R|Which algorithm to execute.",
@@ -424,7 +426,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         "--mcchainlength",
         type=int,
         dest="n_mc_chain_length",
-        default=10,
+        default=1000,
         action=action_not_less_than(1),
         help="R|Fixed number of steps M_1 of the Markov chain on the finest level (level 1).",
     )
@@ -432,10 +434,10 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         "--mcsubchainlength",
         type=int,
         dest="n_mc_subchain_lengths",
-        default=None,
+        default=[10],
         action=action_not_less_than(1),
         nargs="+",
-        help="R|Fixed subchain lengths on the coarser levels 2..n_models (space separated, n_models - 1 values).\nEvery step on level i runs a subchain of this fixed length on level i+1.",
+        help="R|Fixed subchain lengths on the coarser levels 2..n_models (space separated, n_models - 1 values).\nEvery step on level i runs a subchain of this fixed length on level i+1.\nA single value is used for all coarse levels (default: 10).",
     )
     p.add_argument(
         "--mcburnin",
@@ -451,6 +453,36 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         dest="seed",
         default=None,
         help="R|Seed of the random number generator of the Markov chain. If omitted, a random seed is drawn and printed.",
+    )
+    p.add_argument(
+        "--forward-model",
+        type=str,
+        dest="forward_model",
+        choices=["dummy", "md"],
+        default="dummy",
+        help="R|Forward model of the Markov chain: 'dummy' (cheap stand-in) or 'md' (LAMMPS + TRAVIS + msdiff).",
+    )
+    p.add_argument(
+        "--workdir",
+        type=str,
+        dest="workdir",
+        default="./mfda_run",
+        help="R|Run directory holding the manifest, the evaluation cache (and MD output) and the results.",
+    )
+    p.add_argument(
+        "--chains",
+        type=int,
+        dest="n_chains",
+        default=1,
+        action=action_not_less_than(1),
+        help="R|Number of independent chains, run concurrently as separate processes.",
+    )
+    p.add_argument(
+        "--lammps-cmd",
+        type=str,
+        dest="lammps_cmd",
+        default="mpirun -np {ncpu} lmp -i {input}",
+        help="R|Command template to run LAMMPS (placeholders {ncpu} and {input}), only used with '--forward-model md'.",
     )
     p.add_argument(
         "--version",

@@ -6,16 +6,13 @@ import argparse
 from collections.abc import Callable
 from pathlib import Path
 
-import h5py
 import numpy as np
 import pytest
-
+from mfwater.algo_mfda.cache import CachedForwardModel
 from mfwater.algo_mfda.markov_chain import (
     ChainResult,
-    MemoizedForward,
     build_config,
     make_config,
-    markov_chain_eval,
     run_chain,
 )
 from mfwater.algo_mfda.multifidelity_mcmc import (
@@ -30,6 +27,13 @@ from mfwater.argparser import constants
 def toy_forward(n: int, theta: np.ndarray) -> float:
     """Deterministic toy forward model with a level dependent bias."""
     return float(2.5 + 5.0 * (theta[0] / 0.16 - 1.0) + 0.01 * n)
+
+
+class ToyModel:
+    """Class version of :func:`toy_forward` (satisfies the ForwardModel protocol)."""
+
+    def __call__(self, n_molecules: int, theta: np.ndarray) -> float:
+        return toy_forward(n_molecules, theta)
 
 
 def make_args(**kw: object) -> argparse.Namespace:
@@ -111,10 +115,10 @@ def test_seed_reproducibility() -> None:
     assert not np.array_equal(a.samples[0], c.samples[0])
 
 
-def test_rng_independent_of_caching() -> None:
+def test_rng_independent_of_caching(tmp_path: Path) -> None:
     cfg = make_config((64, 32, 16), (2, 3), "lj-q")
     rng1 = np.random.default_rng(3)
-    memo = MemoizedForward(toy_forward)
+    memo = CachedForwardModel(ToyModel(), tmp_path / "cache")
     r1 = run_chain(cfg, memo, rng1, 6, 0)
     rng2 = np.random.default_rng(3)
     r2 = run_chain(cfg, toy_forward, rng2, 6, 0)
@@ -122,7 +126,7 @@ def test_rng_independent_of_caching() -> None:
         np.testing.assert_array_equal(x, y)
     # identical RNG state afterwards: same number of draws
     assert rng1.random() == rng2.random()
-    assert memo.n_cached > 0
+    assert memo.n_hits > 0
 
 
 def test_fixed_parameters_stay_at_mean() -> None:
@@ -142,7 +146,7 @@ def test_invalid_inputs() -> None:
     with pytest.raises(ValueError, match="descending"):
         build_config(make_args(n_molecules=[64, 64, 16]))
     with pytest.raises(ValueError, match="--mcsubchainlength"):
-        build_config(make_args(n_mc_subchain_lengths=[2]))
+        build_config(make_args(n_mc_subchain_lengths=[2, 3, 4]))
     with pytest.raises(ValueError, match="Subchain lengths"):
         build_config(make_args(n_mc_subchain_lengths=[2, 0]))
     with pytest.raises(ValueError, match="--mcburnin"):
@@ -186,23 +190,3 @@ def test_estimator_errors() -> None:
         mfda_estimator([[], [np.zeros(3)]], [[], []])
     with pytest.raises(ValueError, match="proposals"):
         mfda_estimator([[np.zeros(3)], [np.zeros(3)]], [[], []])
-
-
-def test_markov_chain_eval_writes_hdf5(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        "mfwater.algo_mfda.markov_chain.forward_model_dummy", toy_forward
-    )
-    out = tmp_path / "chain.hdf5"
-    args = make_args(output=str(out), n_mc_burnin=2)
-    assert markov_chain_eval(args) == 0
-    with h5py.File(out, "r") as f:
-        assert f["samples_level1"].shape == (4, 3)
-        assert f["samples_level3"].shape == (4 * 6, 3)
-        assert "proposals_level3" not in f
-        assert f["estimator"].shape == (3,)
-        assert f.attrs["seed"] == "1"
-        assert f.attrs["n_burnin"] == 2
-    with pytest.raises(FileExistsError):
-        markov_chain_eval(args)

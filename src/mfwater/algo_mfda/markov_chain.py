@@ -13,7 +13,6 @@ import h5py
 import numpy as np
 
 from ..argparser import constants
-from .forward_model import forward_model_dummy
 from .multifidelity_mcmc import (
     ChainState,
     ForwardCallable,
@@ -29,50 +28,6 @@ _FREE_MASKS: dict[str, tuple[bool, bool, bool]] = {
     "q": (False, False, True),
     "lj-q": (True, True, True),
 }
-
-
-class MemoizedForward:
-    """In-memory memo around a forward model.
-
-    D of a given ``(N, theta)`` is computed once and reused, because the forward
-    model is stochastic. This is a local stand-in until a persistent cache wraps
-    the forward model. The memo never draws from the algorithm RNG.
-
-    Parameters
-    ----------
-    forward : ForwardCallable
-        Forward model ``forward(n_molecules, theta) -> D``.
-    """
-
-    def __init__(self, forward: ForwardCallable) -> None:
-        self._forward = forward
-        self._memo: dict[tuple[Any, ...], float] = {}
-        self.n_computed = 0
-        self.n_cached = 0
-
-    def __call__(self, n_molecules: int, theta: np.ndarray) -> float:
-        """Return D for ``(n_molecules, theta)``, computing it only once.
-
-        Parameters
-        ----------
-        n_molecules : int
-            Number of molecules.
-        theta : np.ndarray
-            Parameter sample.
-
-        Returns
-        -------
-        float
-            Diffusion coefficient in 1e-9 m^2/s.
-        """
-        # float.hex() is an exact key: equal floats <=> equal keys
-        key = (int(n_molecules), *(float(t).hex() for t in theta))
-        if key in self._memo:
-            self.n_cached += 1
-        else:
-            self._memo[key] = float(self._forward(n_molecules, theta))
-            self.n_computed += 1
-        return self._memo[key]
 
 
 @dataclass
@@ -170,6 +125,54 @@ def run_chain(
     return ChainResult(samples, proposals, estimator, contributions, seed, n_burnin)
 
 
+def as_int_list(value: int | Sequence[int] | None) -> list[int]:
+    """Normalise a command line value to a list of ints.
+
+    The ``action_not_less_than`` argparse action stores a single value as a
+    scalar and several values as a list.
+
+    Parameters
+    ----------
+    value : int, Sequence[int] or None
+        Value as stored in the argument namespace.
+
+    Returns
+    -------
+    list[int]
+        The values as a list (empty for ``None``).
+    """
+    if value is None:
+        return []
+    if isinstance(value, int):
+        return [value]
+    return [int(v) for v in value]
+
+
+def resolve_subchain_lengths(
+    lengths: int | Sequence[int] | None, n_models: int
+) -> list[int]:
+    """Expand a single ``--mcsubchainlength`` value to all coarse levels.
+
+    Parameters
+    ----------
+    lengths : Sequence[int] or None
+        Subchain lengths as given on the command line.
+    n_models : int
+        Number of levels ``eta``.
+
+    Returns
+    -------
+    list[int]
+        The lengths unchanged, or one value repeated ``n_models - 1`` times if
+        exactly one value was given. ``None`` is returned as an empty list so
+        that the caller reports the wrong length.
+    """
+    values = as_int_list(lengths)
+    if len(values) == 1:
+        return values * max(n_models - 1, 0)
+    return values
+
+
 def build_config(args: argparse.Namespace) -> MFDAConfig:
     """Validate the command line arguments and build the algorithm settings.
 
@@ -191,8 +194,8 @@ def build_config(args: argparse.Namespace) -> MFDAConfig:
     """
     if args.n_models < 2:
         raise ValueError(f"At least 2 models are required, got {args.n_models}.")
-    molecules = args.n_molecules
-    if molecules is None or len(molecules) != args.n_models:
+    molecules = as_int_list(args.n_molecules)
+    if len(molecules) != args.n_models:
         raise ValueError(
             f"--molecules must list {args.n_models} values (one per model), "
             f"got {molecules}."
@@ -201,8 +204,8 @@ def build_config(args: argparse.Namespace) -> MFDAConfig:
         raise ValueError(
             f"--molecules must be strictly descending (level 1 = finest), got {molecules}."
         )
-    sub = args.n_mc_subchain_lengths
-    if sub is None or len(sub) != args.n_models - 1:
+    sub = resolve_subchain_lengths(args.n_mc_subchain_lengths, args.n_models)
+    if len(sub) != args.n_models - 1:
         raise ValueError(
             f"--mcsubchainlength must list {args.n_models - 1} values "
             f"(levels 2..{args.n_models}), got {sub}."
@@ -323,64 +326,3 @@ def write_results(
         f.attrs["molecules"] = np.array(config.molecules)
         f.attrs["subchain_lengths"] = np.array(config.subchain_lengths)
         f.attrs["free_mask"] = config.free_mask
-
-
-def markov_chain_eval(args: argparse.Namespace) -> int:
-    """Run the MFDA-MCMC algorithm for MFWater.
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Command line arguments.
-
-    Returns
-    -------
-    int
-        Exit code, ``0`` for success.
-
-    Raises
-    ------
-    ValueError
-        If the arguments are invalid (see :func:`build_config`).
-    FileExistsError
-        If the output file already exists.
-    """
-    config = build_config(args)
-
-    # fail before any compute is spent if the output cannot be written
-    if Path(args.output).exists():
-        raise FileExistsError(
-            f"Output file {args.output} exists, refusing to overwrite."
-        )
-
-    # one generator for the whole algorithm; print the seed so the run is reproducible
-    seed = args.seed if args.seed is not None else np.random.SeedSequence().entropy
-    print(f"Random seed: {seed}")
-    rng = np.random.default_rng(seed)
-
-    # NOTE: forward_model_dummy draws from the global np.random, so runs are not
-    # reproducible with the dummy model until the deterministic forward model is wired in.
-    forward = MemoizedForward(forward_model_dummy)
-
-    result = run_chain(
-        config, forward, rng, args.n_mc_chain_length, args.n_mc_burnin, seed
-    )
-
-    # level 1 is the finest, the last level the coarsest
-    for i, contrib in enumerate(result.contributions, start=1):
-        kind = "coarsest, mean(X)" if i == config.n_levels else "mean(X) - mean(X')"
-        print(
-            f"Level {i} ({kind}), contribution to eps, sig, q: "
-            f"{contrib[0]:10.6f} {contrib[1]:10.6f} {contrib[2]:10.6f}"
-        )
-    est = result.estimator
-    print(
-        f"\nMFDA-MCMC estimator:                  "
-        f"{est[0]:10.6f} {est[1]:10.6f} {est[2]:10.6f}"
-    )
-    print(
-        f"Forward evaluations: {forward.n_computed} computed, {forward.n_cached} from cache."
-    )
-
-    write_results(args.output, result, config, vars(args), args.n_mc_chain_length)
-    return 0
