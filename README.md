@@ -341,7 +341,7 @@ Arguments (defaults in brackets):
 - `--mcchainlength` [1000]: steps `M_1` on the finest level. `--mcburnin` [100]: discarded fine steps (all levels).
 - `--mcsubchainlength` [10]: subchain lengths for levels `2..n_models`; one value is used for all levels, otherwise `n_models - 1` values.
 - `--params {lj,q,lj-q}` [`lj`]: calibrated parameters, the others stay at the OPC3 value.
-- `--seed` [random, printed and stored in the manifest], `--orthoboxy` (needs OrthoBoXY support of the MD model), `--lammps-cmd` [`mpirun -np {ncpu} lmp -i {input}`].
+- `--seed` [random, printed and stored in the manifest], `--orthoboxy` (tetragonal OrthoBoXY boxes, see below), `--lammps-cmd` [`mpirun -np {ncpu} lmp -i {input}`].
 - `-o` [`default.hdf5`]: name of the combined summary file inside `--workdir` (an absolute path is used as is).
 
 Run directory:
@@ -365,6 +365,11 @@ A run whose summary file exists is complete and is refused.
 **Cluster job.** `src/mfwater/algo_mfda/data/run-mfda-marvin.sh` is a template (partition `intelsr_long`, 7 days).
 `mfwater -a mfda-ncpu --molecules 1000 500 100 --chains 4` prints `chains * calc_cpus(N_1)` for `--ntasks`.
 TRAVIS and msdiff run serially inside each chain.
+
+**OrthoBoXY and msdiff.** With `--orthoboxy`, the MD forward model uses tetragonal OrthoBoXY boxes and the TRAVIS input `travis_input_msd_orthoboxy.txt` (two MSD observations, x-y and z).
+msdiff is called as in paper I, so that MFDA values are comparable to paper-I data: `msdiff -f msd_H2O_#2.csv --from-travis --hummer 298.15 0.89e-3 0.0` (cubic) or `msdiff -f msd_H2O_#2_XY.csv --from-travis --hummer 298.15 0.89e-3 0.0 --orthoboxy msd_H2O_#2_Z.csv` (OrthoBoXY); the box lengths are read from `travis.log`.
+The returned D is the `D_0` column (Hummer term K not added), converted from 1e-12 to 1e-9 m^2/s.
+The cache stores the box shape and refuses to mix cubic and OrthoBoXY results; use a separate `--workdir` per box shape.
 Several chains start `mpirun` concurrently in one allocation; use `--bind-to none` (default of the script) or `srun --exact -n {ncpu} lmp -i {input}` via `--lammps-cmd`. This is untested on Marvin.
 
 ## Notes

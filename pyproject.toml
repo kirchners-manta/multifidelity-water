@@ -7,6 +7,12 @@
   pythonpath = ["src"]
 
 
+[tool.isort]
+  profile = "black"
+  # fixed first-party package: detection otherwise depends on the checkout/environment
+  known_first_party = ["mfwater"]
+
+
 [tool.mypy]
   check_untyped_defs = true
   disallow_any_generics = true

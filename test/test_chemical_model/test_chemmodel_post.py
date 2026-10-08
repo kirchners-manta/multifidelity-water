@@ -8,6 +8,7 @@ from pathlib import Path
 
 import h5py
 import pytest
+
 from mfwater import console_entry_point
 from mfwater.msdiff_io import parse_msdiff_d_raw
 

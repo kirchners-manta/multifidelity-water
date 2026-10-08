@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+
 from mfwater.algo_chemical_model.chemical_model import calc_box_size
 from mfwater.algo_mfda import cache as cache_mod
 from mfwater.algo_mfda import md_pipeline

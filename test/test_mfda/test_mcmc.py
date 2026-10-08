@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+
 from mfwater.algo_mfda.cache import CachedForwardModel
 from mfwater.algo_mfda.markov_chain import (
     ChainResult,

@@ -84,8 +84,6 @@ def make_inner_model(settings: dict[str, Any], cache_dir: Path) -> ForwardModel:
     ------
     ValueError
         If the forward model name is unknown.
-    NotImplementedError
-        If ``orthoboxy`` is requested and not supported by the MD model yet.
     """
     if settings["forward_model"] == "dummy":
         return DummyForwardModel()

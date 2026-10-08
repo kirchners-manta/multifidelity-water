@@ -9,6 +9,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 import pytest
+
 from mfwater.algo_mfda import run_manager
 from mfwater.algo_mfda.forward_model import DummyForwardModel
 from mfwater.algo_mfda.markov_chain import build_config
