@@ -2,8 +2,11 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      # TRAVIS input files: blank lines are answers (accept default), keep them verbatim
       - id: trailing-whitespace
+        exclude: ^src/mfwater/algo_chemical_model/data/travis_input.*\.txt$
       - id: end-of-file-fixer
+        exclude: ^src/mfwater/algo_chemical_model/data/travis_input.*\.txt$
       - id: check-shebang-scripts-are-executable
       - id: check-toml
       - id: check-yaml
