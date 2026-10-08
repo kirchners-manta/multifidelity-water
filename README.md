@@ -33,6 +33,9 @@ As of now, the available algorithms are:
 *Note*: After the `eval-estimator` step, the `chemmodel-prep` and `chemmod-post` steps need to be repeated with the selected models.
 After that, the `mfmc` step can be executed.
 - `mfmc`: Computes the MFMC estimator.
+- `markov-chain`: Multifidelity delayed acceptance MCMC (MFDA) for calibrating force field parameters, see [markov-chain](#markov-chain).
+- `mfda-smoke`: Runs a single forward evaluation (no MCMC), to test the external programs.
+- `mfda-ncpu`: Prints the number of CPUs needed for the chosen number of chains.
 
 For a detailed description of the algorithms, see the [Algorithms](#algorithms) section below.
 
@@ -321,6 +324,48 @@ FILE_CONTENTS {
 }
 ```
 The `mfmc` algorithm can be executed several times on the same input file, but it will overwrite the existing attributes.
+
+### markov-chain
+Multifidelity delayed acceptance MCMC (MFDA, after [Lykkegaard et al.](https://arxiv.org/abs/2202.03876)) for the parameters `(epsilon_OO, sigma_OO, q_O)` of OPC3.
+Level 1 is the finest (largest `N`), the last level the coarsest.
+```bash
+mfwater -a markov-chain --forward-model md --workdir ./mfda_run --chains 4 \
+    --models 3 --molecules 1000 500 100 --mcchainlength 1000 --mcsubchainlength 10 \
+    --mcburnin 100 --params lj --seed 1
+```
+Arguments (defaults in brackets):
+- `--forward-model {dummy,md}` [`dummy`]: cheap stand-in or the MD pipeline (fftool, packmol, LAMMPS, TRAVIS, msdiff).
+- `--workdir` [`./mfda_run`]: run directory, see below.
+- `--chains` [1]: independent chains, run concurrently as separate processes. Chain `c` uses `np.random.default_rng([seed, c])` and its own cache.
+- `--models`, `--molecules`: number of levels and molecules per level (strictly descending).
+- `--mcchainlength` [1000]: steps `M_1` on the finest level. `--mcburnin` [100]: discarded fine steps (all levels).
+- `--mcsubchainlength` [10]: subchain lengths for levels `2..n_models`; one value is used for all levels, otherwise `n_models - 1` values.
+- `--params {lj,q,lj-q}` [`lj`]: calibrated parameters, the others stay at the OPC3 value.
+- `--seed` [random, printed and stored in the manifest], `--orthoboxy` (needs OrthoBoXY support of the MD model), `--lammps-cmd` [`mpirun -np {ncpu} lmp -i {input}`].
+- `-o` [`default.hdf5`]: name of the combined summary file inside `--workdir` (an absolute path is used as is).
+
+Run directory:
+```
+manifest.json                 arguments, seed, package version, git hash
+cache/chain_000/N{n}/{key_hash}/result.json
+cache/chain_000/N{n}/{key_hash}/attempt_{k}/{siminp,simout,msd}/
+chain_000.hdf5, ...           samples/proposals per level, estimator
+default.hdf5                  per-chain estimators, mean, between-chain standard deviation
+```
+Nothing is overwritten or deleted. Existing result files are refused.
+
+**Restart.** Rerun the same command (on Marvin: resubmit the same job script).
+Chains with an existing `chain_{c:03d}.hdf5` are skipped; the others are replayed from the start with the same seed, and every evaluation with a `result.json` in the cache returns instantly (the number of cached/computed evaluations is printed per chain).
+The arguments and the package version/git hash are compared with `manifest.json`; on a mismatch the run aborts (use a new `--workdir`).
+An interrupted MD evaluation leaves its `attempt_{k}` directory in place and is recomputed in a new attempt.
+A run whose summary file exists is complete and is refused.
+
+**Smoke test.** `mfwater -a mfda-smoke --forward-model md --molecules 32 --workdir ./smoke_run` runs one MD evaluation at the OPC3 parameters and prints D.
+
+**Cluster job.** `src/mfwater/algo_mfda/data/run-mfda-marvin.sh` is a template (partition `intelsr_long`, 7 days).
+`mfwater -a mfda-ncpu --molecules 1000 500 100 --chains 4` prints `chains * calc_cpus(N_1)` for `--ntasks`.
+TRAVIS and msdiff run serially inside each chain.
+Several chains start `mpirun` concurrently in one allocation; use `--bind-to none` (default of the script) or `srun --exact -n {ncpu} lmp -i {input}` via `--lammps-cmd`. This is untested on Marvin.
 
 ## Notes
 The generation of input files for LAMMPS involves external software, namely [fftool](https://github.com/paduagroup/fftool) and [packmol](https://m3g.github.io/packmol/).
