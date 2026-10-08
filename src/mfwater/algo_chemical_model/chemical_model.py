@@ -14,6 +14,7 @@ import numpy as np
 
 from ..algo_input import check_input_file
 from ..argparser import constants
+from ..msdiff_io import parse_msdiff_d_raw
 
 
 def chemical_model_prep(args: argparse.Namespace) -> int:
@@ -131,10 +132,9 @@ def chemical_model_post(args: argparse.Namespace) -> int:
                     / "msd"
                     / "msdiff_out.csv"
                 )
-                with open(msdpath, encoding="utf-8") as msd:
-                    msdlog = msd.readlines()
-                    diff = float(msdlog[-1].split(",")[0].strip())
-                    diffusion_coeffs.append(diff)
+                # raw msdiff unit (1e-12 m^2/s), as stored in paper I; the shared
+                # parser finds the column by header (old and new msdiff layout)
+                diffusion_coeffs.append(parse_msdiff_d_raw(msdpath))
 
                 # read LAMMPS output
                 logpath = (

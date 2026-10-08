@@ -1,0 +1,74 @@
+! TRAVIS input file
+! Created with TRAVIS version compiled at May  8 2025 15:31:38
+! Source code version: Mar 5 2024
+! Input file written at Wed May 14 17:16:13 2025.
+! Use the advanced mode until the analysis selection menu (y/n)? [no] 
+
+! Use these values (y) or enter different values (n)? [yes] 
+
+! Update cell geometry in every time step (i.e., NPT ensemble) (y) or use fixed cell (n)? [yes] 
+n
+! Create images of the structural formulas (y/n)? [no] 
+
+! Accept these molecules (y) or change something (n)? [yes] 
+
+! Which functions to compute (comma separated)?
+msd
+! Use the advanced mode for the main part (y/n)? [no] 
+y
+! Enter the physical time distance between successive trajectory frames in fs: [0.5] 
+1000
+! Use MSD cached mode (do this unless there are problems) (y/n)? [yes] 
+
+! Which atom(s) to take from OM H2O (e.g. "C1,C3-5,H", "*"=all)? [#2]
+
+! Enter the correlation depth for this MSD (in trajectory frames): [603] 
+600
+! Take every n-th step for the time axis of the MSD: [1] 
+
+! Shift correlation window n time steps at once: [1] 
+
+! Decompose this MSD into contributions from each individual molecule (y/n)? [no] 
+
+! Take into account only certain dimensions for displacement (y/n)? [no] 
+y
+! Take into account contributions along X axis (y/n)? [yes] 
+
+! Take into account contributions along Y axis (y/n)? [yes] 
+
+! Take into account contributions along Z axis (y/n)? [yes] 
+n
+! Add another observation (y/n)? [no] 
+y
+! Which atom(s) to take from OM H2O (e.g. "C1,C3-5,H", "*"=all)? [#2]
+
+! Enter the correlation depth for this MSD (in trajectory frames): [603] 
+600
+! Take every n-th step for the time axis of the MSD: [1] 
+
+! Shift correlation window n time steps at once: [1] 
+
+! Decompose this MSD into contributions from each individual molecule (y/n)? [no] 
+
+! Take into account only certain dimensions for displacement (y/n)? [no] 
+y
+! Take into account contributions along X axis (y/n)? [yes] 
+n
+! Take into account contributions along Y axis (y/n)? [yes] 
+n
+! Take into account contributions along Z axis (y/n)? [yes] 
+
+! Add another observation (y/n)? [no] 
+
+! Remove center of mass movement of the box (y/n)? [yes] 
+
+! Fix com of whole system (y) or a specified center/atom (n)? [yes] 
+
+! Perform a multi-interval analysis (y/n)? [no] 
+
+! In which trajectory frame to start processing the trajectory? [1] 
+
+! How many trajectory frames to read (from this position on)? [all] 
+
+! Use every n-th read trajectory frame for the analysis: [1] 
+
