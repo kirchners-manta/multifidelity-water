@@ -14,4 +14,6 @@ dependencies:
   - tox
   - pip:
       - covdefaults
-      - msdiff
+      # msdiff on PyPI is an unrelated project; install ours from GitHub, pinned
+      # to a commit (0.3.2, needed for --from-travis/--hummer/--orthoboxy).
+      - msdiff @ git+https://github.com/kirchners-manta/msdiff@cf968a1aaa891d2f6bfb90a192e930f3d95edbda
