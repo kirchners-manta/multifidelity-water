@@ -746,3 +746,83 @@ def test_merge_removes_duplicate_frame_and_detects_gap(tmp_path: Path) -> None:
         md_pipeline.merge_trajectories(
             [(trunc, None)], tmp_path / "t_out.lammpstrj", first_step=0, last_step=2000
         )
+
+
+def make_restarts(
+    attempt: Path, sizes: dict[int, int], resumed_from: str | None = None
+) -> None:
+    """Create mocked restart files ``{step: size in bytes}`` in an attempt."""
+    simout = attempt / "simout"
+    simout.mkdir(parents=True)
+    for step, size in sizes.items():
+        (simout / f"restart.{step}").write_bytes(b"x" * size)
+    if resumed_from is not None:
+        (attempt / "resume_from.txt").write_text(f"{resumed_from}\n")
+
+
+def test_restart_truncated_newest_is_skipped(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    a1 = tmp_path / "attempt_1"
+    make_restarts(a1, {100_000: 50, 200_000: 50, 300_000: 20})
+    step, path = MDForwardModel(tmp_path)._resume_point(a1) or (0, a1)
+    assert (step, path.name) == (200_000, "restart.200000")
+    out = capsys.readouterr().out
+    assert "Warning:" in out and "restart.300000" in out
+    assert (a1 / "simout" / "restart.300000").stat().st_size == 20  # untouched
+
+
+def test_restart_two_truncated_newest_are_skipped(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    a1 = tmp_path / "attempt_1"
+    make_restarts(a1, {100_000: 50, 200_000: 50, 300_000: 30, 400_000: 10})
+    point = MDForwardModel(tmp_path)._resume_point(a1)
+    # 400k (10) != 300k (30): skipped; 300k (30) != 200k (50): skipped
+    assert point is not None and point[0] == 200_000
+    assert capsys.readouterr().out.count("Warning:") == 2
+
+
+def test_restart_only_empty_file_starts_fresh(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    model = MDForwardModel(tmp_path)
+    a1 = tmp_path / "attempt_1"
+    make_restarts(a1, {100_000: 0})
+    assert model._resume_point(a1) is None
+    assert "starting from the beginning" in capsys.readouterr().out
+
+
+def test_restart_single_valid_file_is_accepted(tmp_path: Path) -> None:
+    a1 = tmp_path / "attempt_1"
+    make_restarts(a1, {100_000: 50})
+    point = MDForwardModel(tmp_path)._resume_point(a1)
+    assert point is not None and point[0] == 100_000
+
+
+def test_restart_files_over_two_attempts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    a1, a2 = tmp_path / "attempt_1", tmp_path / "attempt_2"
+    make_restarts(a1, {100_000: 50, 200_000: 50})
+    make_restarts(a2, {300_000: 50, 400_000: 7}, "attempt_1/simout/restart.200000")
+    model = MDForwardModel(tmp_path)
+    point = model._resume_point(a2)
+    assert point is not None and point[1] == a2 / "simout" / "restart.300000"
+    # newest attempt has only a truncated file: fall back into the older attempt
+    (a2 / "simout" / "restart.300000").unlink()
+    point = model._resume_point(a2)
+    assert point is not None and point[1] == a1 / "simout" / "restart.200000"
+    # sole oldest candidate disagrees with a restart file outside the chain
+    (a1 / "simout" / "restart.100000").unlink()
+    make_restarts(tmp_path / "attempt_3", {PROD_END: 99})
+    capsys.readouterr()
+    assert model._resume_point(a1) is None
+
+
+def test_select_restart_file_unit(tmp_path: Path) -> None:
+    f = tmp_path / "restart.1"
+    f.write_bytes(b"x" * 5)
+    assert md_pipeline.select_restart_file([(1, f)], [5]) == ((1, f), [])
+    assert md_pipeline.select_restart_file([(1, f)], [4]) == (None, [f])
+    assert md_pipeline.select_restart_file([], []) == (None, [])

@@ -290,27 +290,81 @@ def write_resume_input(target: Path, restart_file: Path, restart_step: int) -> N
     target.write_text("\n".join(lines), encoding="utf-8")
 
 
-def find_restart_files(simout: Path) -> list[tuple[int, Path]]:
+def find_restart_files(
+    simout: Path, include_empty: bool = False
+) -> list[tuple[int, Path]]:
     """List the non-empty LAMMPS restart files of a ``simout`` directory.
 
     Parameters
     ----------
     simout : Path
         LAMMPS working directory.
+    include_empty : bool, optional
+        Also list empty files (default False).
 
     Returns
     -------
     list[tuple[int, Path]]
         ``(timestep, path)`` for files ``restart.<step>``, sorted by timestep.
-        Empty files (interrupted write) are ignored.
+        Empty files (interrupted write) are ignored unless ``include_empty``.
     """
     found = []
     if simout.is_dir():
         for p in simout.iterdir():
             m = re.fullmatch(r"restart\.(\d+)", p.name)
-            if m and p.is_file() and p.stat().st_size > 0:
+            if m and p.is_file() and (include_empty or p.stat().st_size > 0):
                 found.append((int(m.group(1)), p))
     return sorted(found)
+
+
+def select_restart_file(
+    candidates: list[tuple[int, Path]], other_sizes: list[int]
+) -> tuple[tuple[int, Path] | None, list[Path]]:
+    """Pick the newest restart file that does not look truncated.
+
+    All restart files of one evaluation (fixed number of molecules) are
+    expected to have the same size: LAMMPS writes a binary file whose size is
+    set by the number of atoms and the stored state. A file cut short, e.g. by
+    a job killed while writing it, is therefore smaller than its predecessor.
+    This is a heuristic, not a validity check of the content.
+
+    UNVERIFIED: that the sizes are constant between the equilibration and the
+    production restart files (e.g. extra fix state in the NPT stage). If a real
+    run shows otherwise, adapt only this function (e.g. compare within a
+    stage, or allow a relative tolerance).
+
+    Rules: the newest file is accepted only if its size equals that of the
+    next-older candidate, otherwise it is skipped and the next-older one is
+    checked in the same way. The oldest candidate has no predecessor; it is
+    accepted if it is non-empty and equals every size in ``other_sizes``
+    (restart files of the evaluation that are not candidates, e.g. beyond the
+    final step). Nothing is deleted or modified.
+
+    Parameters
+    ----------
+    candidates : list[tuple[int, Path]]
+        ``(timestep, path)`` of the non-empty candidates, sorted by timestep.
+    other_sizes : list[int]
+        Sizes in bytes of the other non-empty restart files of the evaluation.
+
+    Returns
+    -------
+    tuple[tuple[int, Path] | None, list[Path]]
+        The accepted ``(timestep, path)`` or None if none is valid, and the
+        skipped files (newest first).
+    """
+    skipped: list[Path] = []
+    for i in range(len(candidates) - 1, -1, -1):
+        step, path = candidates[i]
+        size = path.stat().st_size
+        if i > 0:
+            ok = size == candidates[i - 1][1].stat().st_size
+        else:
+            ok = size > 0 and all(size == other for other in other_sizes)
+        if ok:
+            return (step, path), skipped
+        skipped.append(path)
+    return None, skipped
 
 
 def iter_frames(path: Path) -> Iterator[tuple[int, list[str]]]:
@@ -619,24 +673,43 @@ class MDForwardModel:
             ``(timestep, restart file)`` or None if the attempt is complete
             (analysis finished) or has no usable restart file. Restart files at
             or after :data:`PROD_END_STEP` are ignored (``run upto`` could not
-            continue from them). If the attempt itself wrote none, the file it
-            was resumed from is used (chains of several interruptions).
+            continue from them). The files of all attempts of the chain are
+            considered (several interruptions); truncated-looking ones are
+            skipped, see :func:`select_restart_file`.
         """
         if (attempt / "msd" / "msdiff_out.csv").exists():
             return None
-        own = [
-            (step, path)
-            for step, path in find_restart_files(attempt / "simout")
-            if step < PROD_END_STEP
+        # Candidates: restart files of the whole attempt chain. An older attempt
+        # is valid only up to the step its successor resumed from; the same step
+        # may exist in two attempts, the later attempt then wins.
+        by_step: dict[int, Path] = {}
+        used: set[Path] = set()
+        for att, stop in self._attempt_chain(attempt):
+            for step, path in find_restart_files(att / "simout"):
+                if step < PROD_END_STEP and (stop is None or step <= stop):
+                    by_step[step] = path
+                    used.add(path)
+        candidates = sorted(by_step.items())
+        # Everything else (files beyond the final step or beyond a stop step,
+        # empty files excluded) serves as size reference for the oldest candidate.
+        every = [
+            p
+            for att in attempt.parent.glob("attempt_*")
+            for _, p in find_restart_files(att / "simout", include_empty=True)
         ]
-        if own:
-            return own[-1]
-        inherited = self._read_resume_from(attempt)
-        if inherited is not None and inherited.is_file():
-            m = re.fullmatch(r"restart\.(\d+)", inherited.name)
-            if m:
-                return int(m.group(1)), inherited
-        return None
+        others = [p.stat().st_size for p in every if p not in used and p.stat().st_size]
+        point, skipped = select_restart_file(candidates, others)
+        for path in skipped:
+            print(
+                f"Warning: skipping restart file {path} "
+                "(size differs from the older restart files, probably truncated)."
+            )
+        if point is None and every:
+            print(
+                f"Warning: no valid restart file in {attempt.parent}; "
+                "starting from the beginning."
+            )
+        return point
 
     def _attempt_chain(self, attempt: Path) -> list[tuple[Path, int | None]]:
         """Follow ``resume_from.txt`` back to the fresh attempt.
