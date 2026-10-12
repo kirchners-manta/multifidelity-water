@@ -10,7 +10,7 @@
 # RESTART: resubmit this very script (same --workdir and same arguments).
 # Finished chains are skipped, unfinished chains are replayed from the start with
 # the same seed and every cached evaluation returns instantly. Arguments are
-# compared with <workdir>/manifest.json; a mismatch aborts with an error.
+# compared with <workdir>/manifest.json; a mismatch of the settings aborts, a changed git hash only warns.
 #
 # SMOKE TEST (run once before a long job, one real evaluation, no MCMC):
 #   mfwater -a mfda-smoke --forward-model md --molecules 32 --workdir ./smoke_run

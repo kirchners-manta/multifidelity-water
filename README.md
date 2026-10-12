@@ -365,7 +365,7 @@ Arguments (defaults in brackets):
 
 Run directory:
 ```
-manifest.json                 arguments, seed, package version, git hash
+manifest.json                 arguments, seed, algorithm and package version, git hash
 cache/chain_000/N{n}/{key_hash}/result.json
 cache/chain_000/N{n}/{key_hash}/attempt_{k}/{siminp,simout,msd}/
 chain_000.hdf5, ...           samples/proposals per level (post-burn-in), estimator; attributes
@@ -378,7 +378,8 @@ Nothing is overwritten or deleted. Existing result files are refused.
 
 **Restart.** Rerun the same command (on Marvin: resubmit the same job script).
 Chains with an existing `chain_{c:03d}.hdf5` are skipped; the others are replayed from the start with the same seed, and every evaluation with a `result.json` in the cache returns instantly (the number of cached/computed evaluations is printed per chain).
-The arguments and the package version/git hash are compared with `manifest.json`; on a mismatch the run aborts (use a new `--workdir`).
+The arguments and an internal `algorithm_version` (bumped when a code change alters the results of a replay) are compared with `manifest.json`; on a mismatch the run aborts (use a new `--workdir`). A manifest without `algorithm_version` counts as version 1 and is refused.
+A different git hash, uncommitted changes (`git_dirty`) or a different package version only print a `Warning:`; you are responsible for the change not affecting results. `--lammps-cmd` and `--print-level` are stored but not compared (e.g. `mpirun` -> `srun` between restarts).
 An interrupted MD evaluation leaves its `attempt_{k}` directory in place and is recomputed in a new attempt.
 A run whose summary file exists is complete and is refused.
 

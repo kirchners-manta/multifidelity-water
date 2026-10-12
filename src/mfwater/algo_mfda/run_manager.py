@@ -2,7 +2,7 @@
 
 Run directory layout (``--workdir``)::
 
-    manifest.json                 arguments, seed, package version and git hash
+    manifest.json                 arguments, seed, algorithm and package version, git hash
     cache/chain_{c:03d}/          evaluation cache of chain c (and MD output)
         N{n}/{key_hash}/result.json
         N{n}/{key_hash}/attempt_{k}/{siminp,simout,msd}/
@@ -48,11 +48,17 @@ from .multifidelity_mcmc import MFDAConfig
 
 MANIFEST_NAME = "manifest.json"
 
-#: Manifest entries that must be identical for a restart (``seed`` is handled separately).
-_COMPARED_KEYS = (
+#: Version of the algorithm as far as results are concerned. Bump it whenever a
+#: change alters the results of a replay with identical settings (a restart
+#: would then silently mix old cached evaluations with new chain logic).
+#: 1 = initial scheme, 2 = burn-in added to the chain length.
+ALGORITHM_VERSION = 2
+
+#: Manifest entries that must be identical for a restart (error otherwise).
+_STRICT_KEYS = (
+    "algorithm_version",
     "forward_model",
     "orthoboxy",
-    "lammps_cmd",
     "molecules",
     "n_models",
     "subchain_lengths",
@@ -61,9 +67,14 @@ _COMPARED_KEYS = (
     "params",
     "n_chains",
     "seed",
-    "version",
-    "git_hash",
 )
+
+#: Entries whose change only prints a warning on a restart (see :func:`check_manifest`).
+_WARN_KEYS = ("git_hash", "git_dirty", "version")
+
+#: Stored for the record but never compared: ``lammps_cmd`` may change between
+#: restarts (e.g. ``mpirun`` -> ``srun``), ``print_level`` does not affect results.
+_STORED_ONLY_KEYS = ("lammps_cmd", "print_level")
 
 
 def make_inner_model(settings: dict[str, Any], cache_dir: Path) -> ForwardModel:
@@ -118,11 +129,32 @@ def _git_hash() -> str | None:
     return out.stdout.strip() or None
 
 
+def _git_dirty() -> bool | None:
+    """Return whether the package source has uncommitted changes.
+
+    Returns
+    -------
+    bool or None
+        ``True`` if ``git status --porcelain`` in the package directory is
+        non-empty, ``None`` if git is unavailable.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(Path(__file__).parent), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return bool(out.stdout.strip())
+
+
 def build_settings(args: argparse.Namespace, seed: int) -> dict[str, Any]:
     """Collect all settings of a run.
 
-    ``print_level`` is stored but not compared on a restart (see
-    ``_COMPARED_KEYS``): it does not affect results. The number of levels is
+    ``lammps_cmd`` and ``print_level`` are stored but not compared on a restart
+    (see ``_STORED_ONLY_KEYS``). The number of levels is
     ``len(--molecules)``; ``--models`` is ignored.
 
     Parameters
@@ -139,6 +171,7 @@ def build_settings(args: argparse.Namespace, seed: int) -> dict[str, Any]:
     """
     molecules = as_int_list(args.n_molecules)
     return {
+        "algorithm_version": ALGORITHM_VERSION,
         "forward_model": args.forward_model,
         "orthoboxy": bool(args.orthoboxy),
         "lammps_cmd": args.lammps_cmd,
@@ -154,6 +187,7 @@ def build_settings(args: argparse.Namespace, seed: int) -> dict[str, Any]:
         "seed": int(seed),
         "version": __version__,
         "git_hash": _git_hash(),
+        "git_dirty": _git_dirty(),
         "print_level": int(getattr(args, "print_level", 0)),
     }
 
@@ -212,6 +246,12 @@ def write_manifest(path: Path, settings: dict[str, Any]) -> None:
 def check_manifest(stored: dict[str, Any], settings: dict[str, Any]) -> None:
     """Compare the stored manifest with the current settings.
 
+    Entries in ``_STRICT_KEYS`` must be identical. A manifest without
+    ``algorithm_version`` counts as version 1. Differences in ``_WARN_KEYS``
+    (git hash, uncommitted changes, package version) only print a warning
+    prefixed with ``Warning:``; ``lammps_cmd`` and ``print_level`` are not
+    compared.
+
     Parameters
     ----------
     stored : dict
@@ -222,20 +262,43 @@ def check_manifest(stored: dict[str, Any], settings: dict[str, Any]) -> None:
     Raises
     ------
     ValueError
-        If any compared entry differs.
+        If any strict entry differs.
     """
+    # manifests written before the key existed are version 1
+    stored = {"algorithm_version": 1, **stored}
     diffs = []
-    for key in _COMPARED_KEYS:
+    for key in _STRICT_KEYS:
         old, new = stored.get(key), settings.get(key)
-        # a git hash of None (no checkout) on either side cannot be compared
-        if key == "git_hash" and (old is None or new is None):
-            continue
         if old != new:
             diffs.append(f"  {key}: manifest has {old!r}, now {new!r}")
     if diffs:
+        hint = ""
+        if stored["algorithm_version"] != settings["algorithm_version"]:
+            hint = (
+                " The algorithm changed since this run was started; its cached "
+                "evaluations cannot be replayed with the current code."
+            )
         raise ValueError(
             "Settings differ from the manifest of this run directory, refusing to "
-            "restart (use a new --workdir for different settings):\n" + "\n".join(diffs)
+            "restart (use a new --workdir for different settings)."
+            + hint
+            + "\n"
+            + "\n".join(diffs)
+        )
+
+    # warn-only entries: a None (no git checkout) on either side cannot be compared
+    for key in ("git_hash", "version"):
+        old, new = stored.get(key), settings.get(key)
+        if old is not None and new is not None and old != new:
+            print(
+                f"Warning: {key} differs from the manifest (manifest has {old!r}, "
+                f"now {new!r}); the restart is only valid if the change does "
+                "not affect the algorithm."
+            )
+    if settings.get("git_dirty"):
+        print(
+            "Warning: the package source has uncommitted changes; the restart "
+            "may not replay the original run."
         )
 
 

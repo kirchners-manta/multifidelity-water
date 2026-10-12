@@ -153,14 +153,80 @@ def test_manifest_mismatch(tmp_path: Path, extra: list[str]) -> None:
     assert (wd / "manifest.json").read_text() == manifest
 
 
-def test_manifest_git_hash_mismatch(tmp_path: Path) -> None:
-    wd = tmp_path / "run"
-    markov_chain_eval(make_args(wd))
+_DELETE = object()
+
+
+def _edit_manifest(wd: Path, **changes: object) -> None:
+    """Modify entries of the manifest of ``wd`` (``_DELETE`` removes a key)."""
     path = wd / "manifest.json"
     data = json.loads(path.read_text())
-    data["git_hash"] = "0" * 40
+    for k, v in changes.items():
+        if v is _DELETE:
+            data.pop(k, None)
+        else:
+            data[k] = v
     path.write_text(json.dumps(data))
-    with pytest.raises(ValueError, match="git_hash"):
+
+
+@pytest.mark.parametrize(
+    "key, value", [("git_hash", "0" * 40), ("version", "0.0.0-old")]
+)
+def test_manifest_warn_keys_warn_only(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], key: str, value: str
+) -> None:
+    wd = tmp_path / "run"
+    markov_chain_eval(make_args(wd))
+    _edit_manifest(wd, **{key: value})
+    capsys.readouterr()
+    _, _, restart = run_manager.prepare_run(make_args(wd, "-o", "other.hdf5"))
+    assert restart
+    assert f"Warning: {key} differs" in capsys.readouterr().out
+
+
+def test_dirty_tree_warns(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wd = tmp_path / "run"
+    markov_chain_eval(make_args(wd))
+    monkeypatch.setattr(run_manager, "_git_dirty", lambda: True)
+    capsys.readouterr()
+    run_manager.prepare_run(make_args(wd, "-o", "other.hdf5"))
+    assert "Warning: the package source has uncommitted changes" in (
+        capsys.readouterr().out
+    )
+
+
+def test_manifest_without_git_info_is_accepted(tmp_path: Path) -> None:
+    wd = tmp_path / "run"
+    markov_chain_eval(make_args(wd))
+    _edit_manifest(wd, git_hash=None, git_dirty=None)
+    run_manager.prepare_run(make_args(wd, "-o", "other.hdf5"))
+
+
+def test_lammps_cmd_not_compared(tmp_path: Path) -> None:
+    wd = tmp_path / "run"
+    markov_chain_eval(make_args(wd))
+    _edit_manifest(wd, lammps_cmd="srun -n {ncpu} lmp -i {input}")
+    _, _, restart = run_manager.prepare_run(make_args(wd, "-o", "other.hdf5"))
+    assert restart
+
+
+def test_manifest_stores_algorithm_version_and_git_dirty(tmp_path: Path) -> None:
+    wd = tmp_path / "run"
+    markov_chain_eval(make_args(wd))
+    data = json.loads((wd / "manifest.json").read_text())
+    assert data["algorithm_version"] == run_manager.ALGORITHM_VERSION
+    assert "git_dirty" in data
+
+
+@pytest.mark.parametrize("old", [_DELETE, 1])
+def test_old_algorithm_version_refused(tmp_path: Path, old: object) -> None:
+    wd = tmp_path / "run"
+    markov_chain_eval(make_args(wd))
+    _edit_manifest(wd, algorithm_version=old)
+    with pytest.raises(ValueError, match="algorithm changed"):
         run_manager.prepare_run(make_args(wd, "-o", "other.hdf5"))
 
 
