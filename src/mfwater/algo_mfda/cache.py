@@ -206,6 +206,8 @@ class CachedForwardModel:
         """
         packmol_seed, velocity_seed = derive_seeds(key)
         attempt = getattr(self.model, "last_attempt_dir", None)
+        # all attempts that contributed (several after a resume from restart files)
+        attempts = getattr(self.model, "last_attempt_dirs", None)
         payload: dict[str, Any] = {
             "D": d,
             "unit": D_UNIT,
@@ -221,6 +223,7 @@ class CachedForwardModel:
             "orthoboxy": getattr(self.model, "orthoboxy", None),
             "wall_time_s": wall_time,
             "attempt_dir": None if attempt is None else str(attempt),
+            "attempt_dirs": None if attempts is None else [str(a) for a in attempts],
         }
         # The temporary file lives in the same directory so that os.replace is
         # an atomic rename on the same file system.

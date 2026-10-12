@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -146,8 +148,13 @@ def make_fake_run(
     calls: list[Any],
     fail_on: str | None = None,
     travis_files: tuple[str, ...] = ("msd_H2O_#2.csv", "msd_H2O_#2_fit.csv"),
+    lammps_hook: Callable[[list[str], Path], None] | None = None,
 ) -> Any:
-    """Return a replacement for ``subprocess.run`` that fakes all programs."""
+    """Return a replacement for ``subprocess.run`` that fakes all programs.
+
+    ``lammps_hook(args, cwd)`` replaces the default LAMMPS fake (it may raise
+    ``CalledProcessError`` to simulate an interrupted run).
+    """
 
     def fake_run(
         args: list[str],
@@ -170,6 +177,9 @@ def make_fake_run(
                     "tolerance 2.0\ninside box 0.0 0.0 0.0 10.0 10.0 10.0\n"
                 )
         elif prog == "mpirun":
+            if lammps_hook is not None:
+                lammps_hook(args, cwd)
+                return
             (cwd / "prod.lammpstrj").write_text("traj")
             (cwd / "log.lammps").write_text("log")
         elif prog == "travis":
@@ -456,3 +466,283 @@ def test_parse_msdiff_rejects_unknown_unit(tmp_path: Path) -> None:
     f.write_text("Species, D_0 / 10^-12 m^2/s\n")
     with pytest.raises(RuntimeError, match="no data"):
         parse_msdiff_output(f)
+
+
+# ------------------------------------------------- restart of interrupted runs
+EQ, PROD_END = md_pipeline.EQ_END_STEP, md_pipeline.PROD_END_STEP
+
+
+def traj_text(steps: range, tag: str, n_atoms: int = 2) -> str:
+    """Synthetic lammpstrj; ``tag`` is stored in the coordinates (frame origin)."""
+    out = []
+    for s in steps:
+        out.append(
+            f"ITEM: TIMESTEP\n{s}\nITEM: NUMBER OF ATOMS\n{n_atoms}\n"
+            "ITEM: BOX BOUNDS pp pp pp\n0 10\n0 10\n0 10\n"
+            "ITEM: ATOMS id element xu yu zu\n"
+        )
+        out.extend(f"{i + 1} H {tag} 0.0 0.0\n" for i in range(n_atoms))
+    return "".join(out)
+
+
+def tags_by_step(path: Path) -> dict[int, str]:
+    """Map timestep -> tag of a synthetic trajectory."""
+    return {s: lines[9].split()[2] for s, lines in md_pipeline.iter_frames(path)}
+
+
+def interrupted_lammps(
+    frames: range | None,
+    restarts: tuple[int, ...],
+    finish: bool = False,
+    seen: list[str] | None = None,
+) -> Callable[[list[str], Path], None]:
+    """Fake LAMMPS writing frames and restart files, then dying (or finishing)."""
+
+    def hook(args: list[str], cwd: Path) -> None:
+        if seen is not None:
+            seen.append((cwd.parent / "siminp" / Path(args[-1]).name).read_text())
+        tag = cwd.parent.name  # e.g. attempt_2
+        if frames is not None:
+            (cwd / "prod.lammpstrj").write_text(traj_text(frames, tag))
+        for r in restarts:
+            (cwd / f"restart.{r}").write_text("binary")
+        if not finish:
+            raise subprocess.CalledProcessError(137, args)
+
+    return hook
+
+
+def snapshot(attempt: Path) -> dict[str, str]:
+    """Hash of every file below an attempt directory."""
+    return {
+        str(p.relative_to(attempt)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in sorted(attempt.rglob("*"))
+        if p.is_file()
+    }
+
+
+def test_template_matches_protocol() -> None:
+    text = md_pipeline.MFDA_INPUT_TEMPLATE.read_text()
+    assert "restart 100000 restart.*" in text
+    assert "run 1000000 upto" in text and "run 3000000 upto" in text
+    assert "write_data data.after_eq.lmp" in text
+    assert "write_data data.after_prod.lmp" in text
+    # paper-I protocol otherwise unchanged: every other command line is identical
+    paper = (md_pipeline.TEMPLATE_DIR / "input.lmp").read_text().splitlines()
+    new = text.splitlines()
+    cmds = lambda ls: [  # noqa: E731
+        ln.split("#")[0].strip() for ln in ls if ln.split("#")[0].strip()
+    ]
+    extra = [c for c in cmds(new) if c not in cmds(paper)]
+    assert extra == [
+        "restart 100000 restart.*",
+        "run 1000000 upto",
+        "run 3000000 upto",
+    ]
+
+
+def test_resume_input_equilibration_stage(tmp_path: Path) -> None:
+    out = tmp_path / "input_resume.lmp"
+    md_pipeline.write_resume_input(out, tmp_path / "restart.300000", 300000)
+    text = out.read_text()
+    assert f'read_restart "{(tmp_path / "restart.300000").resolve()}"' in text
+    assert "fix fTHERMO all nvt temp ${vTK} ${vTK} 100" in text  # same ID and style
+    assert "run 1000000 upto" in text and "run 3000000 upto" in text
+    assert "dump dEQUI" in text and "dump dPROD" in text
+    assert text.index("run 1000000 upto") < text.index("run 3000000 upto")
+    for forbidden in ("minimize", "velocity all create", "reset_timestep", "read_data"):
+        assert not [
+            ln for ln in text.splitlines() if ln.startswith(forbidden)
+        ], forbidden
+    # every re-specified setting is the one of the template
+    template = md_pipeline.MFDA_INPUT_TEMPLATE.read_text().splitlines()
+    for ln in text.splitlines():
+        if ln.startswith(("fix ", "kspace_style", "neighbor", "timestep", "thermo")):
+            assert ln in template, ln
+
+
+def test_resume_input_production_stage(tmp_path: Path) -> None:
+    out = tmp_path / "input_resume.lmp"
+    md_pipeline.write_resume_input(out, tmp_path / "restart.1500000", 1_500_000)
+    text = out.read_text()
+    assert "dump dEQUI" not in text and "run 1000000 upto" not in text
+    assert "run 3000000 upto" in text
+    assert "data.after_eq" not in text
+    with pytest.raises(ValueError):
+        md_pipeline.write_resume_input(out, tmp_path / "restart.3000000", PROD_END)
+
+
+def test_fresh_start_without_restart_files(tmp_path: Path, fake_md: list[Any]) -> None:
+    model = MDForwardModel(tmp_path)
+    model(100, THETA)
+    assert model.last_attempt_dirs == [model.last_attempt_dir]
+    attempt = model.last_attempt_dir
+    assert attempt is not None
+    assert not (attempt / "resume_from.txt").exists()
+    assert not (attempt / "msd" / md_pipeline.COMBINED_TRAJECTORY).exists()
+    # without interruption TRAVIS reads the LAMMPS trajectory directly
+    travis = next(c for c in fake_md if c[0][0] == "travis")
+    assert travis[0][-1] == "../simout/prod.lammpstrj"
+    # the template with restart output is what LAMMPS gets
+    text = (attempt / "siminp" / "input.lmp").read_text()
+    assert "restart 100000 restart.*" in text and "run 3000000 upto" in text
+
+
+def test_restart_chain_of_three_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(md_pipeline.shutil, "which", lambda p: f"/usr/bin/{p}")
+    calls: list[Any] = []
+    seen: list[str] = []
+    model = MDForwardModel(tmp_path)
+
+    def run(hook: Callable[[list[str], Path], None]) -> None:
+        monkeypatch.setattr(
+            md_pipeline.subprocess,
+            "run",
+            make_fake_run(calls, lammps_hook=hook),
+        )
+
+    # attempt 1: killed in production, last restart at 1.2e6, frames beyond it
+    run(interrupted_lammps(range(EQ, 1_250_001, 1000), (EQ, 1_100_000, 1_200_000)))
+    with pytest.raises(RuntimeError, match="mpirun"):
+        model(100, THETA)
+    a1 = model.last_attempt_dir
+    assert a1 is not None
+    snap1 = snapshot(a1)
+
+    # attempt 2: resumes from attempt 1, killed again after more restarts
+    run(
+        interrupted_lammps(
+            range(1_200_000, 1_450_001, 1000), (1_300_000, 1_400_000), seen=seen
+        )
+    )
+    with pytest.raises(RuntimeError, match="mpirun"):
+        model(100, THETA)
+    a2 = model.last_attempt_dir
+    assert a2 is not None and a2.name == "attempt_2"
+    snap2 = snapshot(a2)
+    assert (
+        a2 / "resume_from.txt"
+    ).read_text().strip() == "attempt_1/simout/restart.1200000"
+    assert "restart.1200000" in seen[0] and "read_restart" in seen[0]
+    assert snapshot(a1) == snap1  # previous attempt untouched
+    assert not any(c[0][0] == "fftool" for c in calls[len(calls) - 2 :])
+
+    # attempt 3: resumes from attempt 2 (not from the older file of attempt 1), finishes
+    n_fftool = sum(c[0][0] == "fftool" for c in calls)
+    run(interrupted_lammps(range(1_400_000, PROD_END + 1, 1000), (), finish=True))
+    d = model(100, THETA)
+    assert d == pytest.approx(2.5)
+    a3 = model.last_attempt_dir
+    assert a3 is not None and a3.name == "attempt_3"
+    assert (
+        a3 / "resume_from.txt"
+    ).read_text().strip() == "attempt_2/simout/restart.1400000"
+    assert sum(c[0][0] == "fftool" for c in calls) == n_fftool  # no box rebuild
+    assert (a3 / "siminp" / "input_resume.lmp").exists()
+    assert not (a3 / "siminp" / "data.lmp").exists()
+    assert model.last_attempt_dirs == [a1, a2, a3]
+    assert snapshot(a1) == snap1 and snapshot(a2) == snap2
+
+    combined = a3 / "msd" / md_pipeline.COMBINED_TRAJECTORY
+    tags = tags_by_step(combined)
+    assert list(tags) == list(range(EQ, PROD_END + 1, 1000))  # 2001, no duplicates
+    assert tags[1_100_000] == "attempt_1" and tags[1_199_000] == "attempt_1"
+    assert tags[1_200_000] == "attempt_2" and tags[1_399_000] == "attempt_2"
+    assert tags[1_400_000] == "attempt_3" and tags[PROD_END] == "attempt_3"
+    travis = [c for c in calls if c[0][0] == "travis"][-1]
+    assert travis[0][-1] == md_pipeline.COMBINED_TRAJECTORY
+
+
+def test_restart_from_equilibration_and_result_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(md_pipeline.shutil, "which", lambda p: f"/usr/bin/{p}")
+    seen: list[str] = []
+    calls: list[Any] = []
+    model = MDForwardModel(tmp_path)
+    cached = CachedForwardModel(model, tmp_path)
+
+    monkeypatch.setattr(
+        md_pipeline.subprocess,
+        "run",
+        make_fake_run(calls, lammps_hook=interrupted_lammps(None, (100_000, 200_000))),
+    )
+    with pytest.raises(RuntimeError):
+        cached(100, THETA)
+    monkeypatch.setattr(
+        md_pipeline.subprocess,
+        "run",
+        make_fake_run(
+            calls,
+            lammps_hook=interrupted_lammps(
+                range(EQ, PROD_END + 1, 1000), (), finish=True, seen=seen
+            ),
+        ),
+    )
+    cached(100, THETA)
+    assert "dump dEQUI" in seen[0] and "run 1000000 upto" in seen[0]
+    data = json.loads((cached.entry_dir(100, THETA) / "result.json").read_text())
+    assert [Path(p).name for p in data["attempt_dirs"]] == ["attempt_1", "attempt_2"]
+    assert data["attempt_dir"].endswith("attempt_2")
+
+
+def test_completed_analysis_is_not_resumed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(md_pipeline.shutil, "which", lambda p: f"/usr/bin/{p}")
+    calls: list[Any] = []
+    hook = interrupted_lammps(range(EQ, PROD_END + 1, 1000), (100_000,), finish=True)
+    monkeypatch.setattr(
+        md_pipeline.subprocess, "run", make_fake_run(calls, lammps_hook=hook)
+    )
+    model = MDForwardModel(tmp_path)
+    model(100, THETA)
+    model(100, THETA)  # first attempt has an analysis: start fresh, not resume
+    assert model.last_attempt_dir is not None
+    assert model.last_attempt_dirs == [model.last_attempt_dir]
+    assert not (model.last_attempt_dir / "resume_from.txt").exists()
+
+
+def test_merge_removes_duplicate_frame_and_detects_gap(tmp_path: Path) -> None:
+    a, b = tmp_path / "a.lammpstrj", tmp_path / "b.lammpstrj"
+    a.write_text(traj_text(range(0, 6000, 1000), "a"))  # frames 0..5000
+    b.write_text(traj_text(range(4000, 8000, 1000), "b"))  # restart at 4000
+    out = tmp_path / "c.lammpstrj"
+    n = md_pipeline.merge_trajectories(
+        [(a, 4000), (b, None)], out, first_step=0, last_step=7000
+    )
+    assert n == 8
+    assert tags_by_step(out) == {
+        **{s: "a" for s in (0, 1000, 2000, 3000)},
+        **{s: "b" for s in (4000, 5000, 6000, 7000)},
+    }
+    assert not out.with_name(out.name + ".part").exists()
+    with pytest.raises(RuntimeError, match="already exists"):
+        md_pipeline.merge_trajectories(
+            [(a, 4000), (b, None)], out, first_step=0, last_step=7000
+        )
+    assert a.read_text() == traj_text(range(0, 6000, 1000), "a")  # sources untouched
+
+    # gap: the resumed run did not write its first frame (starts at 5000)
+    c = tmp_path / "c2.lammpstrj"
+    c.write_text(traj_text(range(5000, 8000, 1000), "c"))
+    with pytest.raises(RuntimeError, match="gap"):
+        md_pipeline.merge_trajectories(
+            [(a, 4000), (c, None)],
+            tmp_path / "gap.lammpstrj",
+            first_step=0,
+            last_step=7000,
+        )
+    # incomplete range and truncated frame
+    with pytest.raises(RuntimeError, match="expected 9000"):
+        md_pipeline.merge_trajectories(
+            [(b, None)], tmp_path / "short.lammpstrj", first_step=4000, last_step=9000
+        )
+    trunc = tmp_path / "t.lammpstrj"
+    trunc.write_text(traj_text(range(0, 3000, 1000), "t")[:-10])
+    with pytest.raises(RuntimeError, match="truncated"):
+        md_pipeline.merge_trajectories(
+            [(trunc, None)], tmp_path / "t_out.lammpstrj", first_step=0, last_step=2000
+        )
