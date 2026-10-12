@@ -209,6 +209,36 @@ def check_manifest(stored: dict[str, Any], settings: dict[str, Any]) -> None:
         )
 
 
+def archive_config(workdir: Path, config: str | Path | None) -> None:
+    """Keep a copy of the TOML configuration file in the run directory.
+
+    The configuration file is the record of what was submitted. The copy
+    survives edits of the original (e.g. between restarts). Nothing is ever
+    overwritten: a file with new content is stored under the next free name
+    (``config.toml``, ``config_1.toml``, ...), identical content is not stored
+    twice.
+
+    Parameters
+    ----------
+    workdir : Path
+        Run directory (must exist).
+    config : str | Path | None
+        Path of the configuration file, ``None`` if none was given.
+    """
+    if config is None:
+        return
+    content = Path(config).read_bytes()
+    k = 0
+    while True:
+        target = workdir / ("config.toml" if k == 0 else f"config_{k}.toml")
+        if not target.exists():
+            target.write_bytes(content)
+            return
+        if target.read_bytes() == content:
+            return
+        k += 1
+
+
 def prepare_run(args: argparse.Namespace) -> tuple[Path, dict[str, Any], bool]:
     """Validate arguments, create the run directory and the manifest.
 
@@ -250,6 +280,7 @@ def prepare_run(args: argparse.Namespace) -> tuple[Path, dict[str, Any], bool]:
         seed = args.seed if args.seed is not None else stored["seed"]
         settings = build_settings(args, seed)
         check_manifest(stored, settings)
+        archive_config(workdir, args.config)
         return workdir, settings, True
 
     seed = (
@@ -260,6 +291,7 @@ def prepare_run(args: argparse.Namespace) -> tuple[Path, dict[str, Any], bool]:
     settings = build_settings(args, seed)
     workdir.mkdir(parents=True, exist_ok=True)
     write_manifest(manifest, settings)
+    archive_config(workdir, args.config)
     return workdir, settings, False
 
 

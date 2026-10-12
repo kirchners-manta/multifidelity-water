@@ -199,3 +199,26 @@ def test_smoke(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     args.n_molecules = [32, 16]
     with pytest.raises(ValueError, match="exactly one"):
         mfda_smoke(args)
+
+
+def test_config_is_archived(tmp_path: Path) -> None:
+    """The TOML file is copied once; changed content gets a new name."""
+    wd = tmp_path / "run"
+    cfg = tmp_path / "my.toml"
+    cfg.write_text("seed = 7\n")
+    run_manager.prepare_run(make_args(wd, "-c", str(cfg)))
+    assert (wd / "config.toml").read_text() == "seed = 7\n"
+    # identical restart: no second copy
+    run_manager.prepare_run(make_args(wd, "-c", str(cfg)))
+    assert not (wd / "config_1.toml").exists()
+    # edited file (same scientific settings): kept next to the first one
+    cfg.write_text("seed = 7\n# edited\n")
+    run_manager.prepare_run(make_args(wd, "-c", str(cfg)))
+    assert (wd / "config.toml").read_text() == "seed = 7\n"
+    assert (wd / "config_1.toml").read_text() == "seed = 7\n# edited\n"
+
+
+def test_no_config_no_archive(tmp_path: Path) -> None:
+    wd = tmp_path / "run"
+    run_manager.prepare_run(make_args(wd))
+    assert not list(wd.glob("config*.toml"))

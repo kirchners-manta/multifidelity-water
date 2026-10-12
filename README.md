@@ -56,6 +56,7 @@ orthoboxy     = false
 seed          = 1
 ```
 **Note:** Options in the configuration file override options given on the command line (and the defaults). Values are checked like on the command line, and unknown keys are rejected. A `false` flag does not switch off a flag given on the command line.
+The file overrides the command line on purpose: it is the record of what was run (a copy is stored in the `--workdir` of `markov-chain`).
 
 The program operates on HDF5 files containing information on the models, which can for example be inspected using the `h5dump` command, e.g., like:
 ```bash
@@ -369,6 +370,8 @@ cache/chain_000/N{n}/{key_hash}/result.json
 cache/chain_000/N{n}/{key_hash}/attempt_{k}/{siminp,simout,msd}/
 chain_000.hdf5, ...           samples/proposals per level, estimator
 default.hdf5                  per-chain estimators, mean, between-chain standard deviation
+config.toml                   copy of the `-c` file (if used); changed content on a restart is
+                              kept as config_1.toml, ... (nothing is overwritten)
 ```
 Nothing is overwritten or deleted. Existing result files are refused.
 
