@@ -378,7 +378,12 @@ Nothing is overwritten or deleted. Existing result files are refused.
 **Restart.** Rerun the same command (on Marvin: resubmit the same job script).
 Chains with an existing `chain_{c:03d}.hdf5` are skipped; the others are replayed from the start with the same seed, and every evaluation with a `result.json` in the cache returns instantly (the number of cached/computed evaluations is printed per chain).
 The arguments and the package version/git hash are compared with `manifest.json`; on a mismatch the run aborts (use a new `--workdir`).
-An interrupted MD evaluation leaves its `attempt_{k}` directory in place and is recomputed in a new attempt.
+An interrupted MD evaluation leaves its `attempt_{k}` directory in place (never modified). The MFDA LAMMPS input `src/mfwater/algo_mfda/data/input_mfda.lmp` is the paper-I protocol plus `restart 100000 restart.*` (a restart file every 100 ps, named by timestep, so none is overwritten) and `run ... upto` (absolute timesteps 1 000 000 and 3 000 000).
+If the newest attempt of an evaluation has no finished analysis but has restart files, the next attempt `attempt_{k+1}` resumes from the newest one instead of starting over: it reads `siminp/input_resume.lmp` (generated; `read_restart`, then the settings a restart file does not store, same `fTHERMO` fix ID), and records the source in `attempt_{k+1}/resume_from.txt`.
+Several interruptions in a row are followed back through `resume_from.txt`. Without any restart file the evaluation starts fresh in a new attempt, as before.
+For a resumed evaluation the production trajectory is spread over several attempts; TRAVIS reads the new file `msd/prod_combined.lammpstrj` (frames of the earlier attempts below the restart step plus all frames of the resumed run, 2001 frames, spacing 1000 steps; the build fails if there is a gap).
+`result.json` lists all attempts used in `attempt_dirs` (`attempt_dir` is the last one).
+A resumed trajectory is not bitwise identical to an uninterrupted one (neighbour lists, PPPM, MPI layout); this is acceptable because every (N, theta) is evaluated once.
 A run whose summary file exists is complete and is refused.
 
 **Smoke test.** `mfwater -a mfda-smoke --forward-model md --molecules 32 --workdir ./smoke_run` runs one MD evaluation at the OPC3 parameters and prints D.
