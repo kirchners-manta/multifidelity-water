@@ -14,6 +14,7 @@ from .forward_model import (
     evaluation_key,
     key_hash,
 )
+from .jobscript import ClusterProfile, load_profile, mfda_jobscript
 from .markov_chain import ChainResult, build_config, make_config, run_chain
 from .md_pipeline import MDForwardModel
 from .multifidelity_mcmc import ChainState, MFDAConfig, mfda_estimator, mfda_step

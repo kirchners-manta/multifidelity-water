@@ -390,8 +390,18 @@ A run whose summary file exists is complete and is refused.
 
 **Smoke test.** `mfwater -a mfda-smoke --forward-model md --molecules 32 --workdir ./smoke_run` runs one MD evaluation at the OPC3 parameters and prints D.
 
-**Cluster job.** `src/mfwater/algo_mfda/data/run-mfda-marvin.sh` is a template (partition `intelsr_long`, 7 days).
-`mfwater -a mfda-ncpu --molecules 1000 500 100 --chains 4` prints `chains * calc_cpus(N_1)` for `--ntasks`.
+**Cluster job.** Put all run settings in a run TOML (`run.toml`) and generate the job script:
+```
+mfwater -a mfda-jobscript --cluster marvin -c run.toml [--jobscript run.sh]
+```
+The settings are validated (as in `markov-chain`), `--ntasks = chains * calc_cpus(N_1)` is checked against `cores_per_node` (all chains share one node), and the script calls `mfwater -a markov-chain -c <absolute path of run.toml>`.
+`--lammps-cmd` is taken from the cluster profile unless `run.toml` sets `lammps_cmd` (the run TOML wins). The job name is the basename of `--workdir`.
+The default output is `run-mfda-<cluster>.sh` in the current directory; an existing file is never overwritten. Restart = resubmit the script.
+`mfwater -a mfda-ncpu --molecules 1000 500 100 --chains 4` prints the number of tasks only.
+
+**Adding a cluster.** Add one TOML file (copy `src/mfwater/algo_mfda/data/clusters/marvin.toml`), or pass it with `--cluster-file my_cluster.toml`.
+It defines `scheduler` (currently only `slurm`; the script comes from `data/jobscript_<scheduler>.sh.template`), `cores_per_node`, the scheduler table (`[slurm]`: `partition`, `account`, `time`, `extra`), `[environment] setup` (shell snippet; it should set `MFWATER` to the `mfwater` executable) and `[lammps] cmd` (with `{ncpu}` and `{input}`).
+The Marvin profile needs fftool `d89546c` or newer (`--lmp`).
 TRAVIS and msdiff run serially inside each chain.
 
 **OrthoBoXY and msdiff.** With `--orthoboxy`, the MD forward model uses tetragonal OrthoBoXY boxes and the TRAVIS input `travis_input_msd_orthoboxy.txt` (two MSD observations, x-y and z).
