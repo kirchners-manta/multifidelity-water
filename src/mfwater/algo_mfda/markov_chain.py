@@ -194,7 +194,7 @@ def build_config(args: argparse.Namespace) -> MFDAConfig:
         args.params,
         int(args.n_mc_chain_length),
         int(args.n_mc_burnin),
-        print_level=getattr(args, "print_level", 0),
+        print_level=args.print_level,
     )
 
 

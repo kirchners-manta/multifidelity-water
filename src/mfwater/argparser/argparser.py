@@ -502,6 +502,14 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         help="R|Command template to run LAMMPS (placeholders {ncpu} and {input}), only used with '--forward-model md'.",
     )
     p.add_argument(
+        "--print-level",
+        type=int,
+        dest="print_level",
+        choices=[0, 1],
+        default=0,
+        help="R|0 = silent, 1 = debug output of the MFDA chains",
+    )
+    p.add_argument(
         "--cluster",
         type=str,
         dest="cluster",

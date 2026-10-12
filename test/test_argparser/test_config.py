@@ -118,3 +118,13 @@ def test_config_to_argv() -> None:
         "2",
         "--orthoboxy",
     ]
+
+
+def test_print_level(tmp_path: Path) -> None:
+    """print_level defaults to 0, is read from the TOML file and validated"""
+    assert parse_args(p, []).print_level == 0
+    cfg = write_config(tmp_path, "print_level = 1\n")
+    assert parse_args(p, ["-c", cfg]).print_level == 1
+    with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+        with pytest.raises(SystemExit):
+            parse_args(p, ["--print-level", "2"])

@@ -47,6 +47,7 @@ def make_args(**kw: object) -> argparse.Namespace:
         params="lj",
         seed=1,
         output="out.hdf5",
+        print_level=0,
     )
     d.update(kw)
     return argparse.Namespace(**d)

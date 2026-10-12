@@ -360,7 +360,7 @@ Arguments (defaults in brackets):
 - `--mcchainlength` [1000]: steps `M_1` on the finest level that are kept. `--mcburnin` [100]: burn-in steps `B`, run in addition (`B + M_1` fine steps in total); everything produced on all levels during the first `B` steps is discarded, so the finest level keeps exactly `M_1` samples. `B = 0` is allowed but prints a warning.
 - `--mcsubchainlength` [10]: subchain lengths for levels `2..eta`; one value is used for all levels, otherwise `len(--molecules) - 1` values.
 - `--params {lj,q,lj-q}` [`lj`]: calibrated parameters, the others stay at the OPC3 value.
-- `--seed` [random, printed and stored in the manifest], `--orthoboxy` (tetragonal OrthoBoXY boxes, see below), `--lammps-cmd` [`mpirun -np {ncpu} lmp -i {input}`].
+- `--seed` [random, printed and stored in the manifest], `--orthoboxy` (tetragonal OrthoBoXY boxes, see below), `--lammps-cmd` [`mpirun -np {ncpu} lmp -i {input}`], `--print-level {0,1}` [0] (0 = silent, 1 = debug output of the MFDA chains; also settable as `print_level = 1` in the TOML file).
 - `-o` [`default.hdf5`]: name of the combined summary file inside `--workdir` (an absolute path is used as is).
 
 Run directory:

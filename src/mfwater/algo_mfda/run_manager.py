@@ -188,7 +188,7 @@ def build_settings(args: argparse.Namespace, seed: int) -> dict[str, Any]:
         "version": __version__,
         "git_hash": _git_hash(),
         "git_dirty": _git_dirty(),
-        "print_level": int(getattr(args, "print_level", 0)),
+        "print_level": int(args.print_level),
     }
 
 
