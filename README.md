@@ -349,16 +349,16 @@ Multifidelity delayed acceptance MCMC (MFDA, after [Lykkegaard et al.](https://a
 Level 1 is the finest (largest `N`), the last level the coarsest.
 ```bash
 mfwater -a markov-chain --forward-model md --workdir ./mfda_run --chains 4 \
-    --models 3 --molecules 1000 500 100 --mcchainlength 1000 --mcsubchainlength 10 \
+    --molecules 1000 500 100 --mcchainlength 1000 --mcsubchainlength 10 \
     --mcburnin 100 --params lj --seed 1
 ```
 Arguments (defaults in brackets):
 - `--forward-model {dummy,md}` [`dummy`]: cheap stand-in or the MD pipeline (fftool, packmol, LAMMPS, TRAVIS, msdiff).
 - `--workdir` [`./mfda_run`]: run directory, see below.
 - `--chains` [1]: independent chains, run concurrently as separate processes. Chain `c` uses `np.random.default_rng([seed, c])` and its own cache.
-- `--models`, `--molecules`: number of levels and molecules per level (strictly descending).
-- `--mcchainlength` [1000]: steps `M_1` on the finest level. `--mcburnin` [100]: discarded fine steps (all levels).
-- `--mcsubchainlength` [10]: subchain lengths for levels `2..n_models`; one value is used for all levels, otherwise `n_models - 1` values.
+- `--molecules`: molecules per level (strictly descending); the number of levels is `len(--molecules)`. `--models` is ignored by `markov-chain`.
+- `--mcchainlength` [1000]: steps `M_1` on the finest level that are kept. `--mcburnin` [100]: burn-in steps `B`, run in addition (`B + M_1` fine steps in total); everything produced on all levels during the first `B` steps is discarded, so the finest level keeps exactly `M_1` samples. `B = 0` is allowed but prints a warning.
+- `--mcsubchainlength` [10]: subchain lengths for levels `2..eta`; one value is used for all levels, otherwise `len(--molecules) - 1` values.
 - `--params {lj,q,lj-q}` [`lj`]: calibrated parameters, the others stay at the OPC3 value.
 - `--seed` [random, printed and stored in the manifest], `--orthoboxy` (tetragonal OrthoBoXY boxes, see below), `--lammps-cmd` [`mpirun -np {ncpu} lmp -i {input}`].
 - `-o` [`default.hdf5`]: name of the combined summary file inside `--workdir` (an absolute path is used as is).
@@ -368,7 +368,8 @@ Run directory:
 manifest.json                 arguments, seed, package version, git hash
 cache/chain_000/N{n}/{key_hash}/result.json
 cache/chain_000/N{n}/{key_hash}/attempt_{k}/{siminp,simout,msd}/
-chain_000.hdf5, ...           samples/proposals per level, estimator
+chain_000.hdf5, ...           samples/proposals per level (post-burn-in), estimator; attributes
+                              n_burnin (B), chain_length (M_1), n_steps_total (B + M_1)
 default.hdf5                  per-chain estimators, mean, between-chain standard deviation
 config.toml                   copy of the `-c` file (if used); changed content on a restart is
                               kept as config_1.toml, ... (nothing is overwritten)

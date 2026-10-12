@@ -44,6 +44,7 @@ from .markov_chain import (
     write_results,
 )
 from .md_pipeline import MDForwardModel
+from .multifidelity_mcmc import MFDAConfig
 
 MANIFEST_NAME = "manifest.json"
 
@@ -118,7 +119,11 @@ def _git_hash() -> str | None:
 
 
 def build_settings(args: argparse.Namespace, seed: int) -> dict[str, Any]:
-    """Collect all algorithm-relevant settings of a run.
+    """Collect all settings of a run.
+
+    ``print_level`` is stored but not compared on a restart (see
+    ``_COMPARED_KEYS``): it does not affect results. The number of levels is
+    ``len(--molecules)``; ``--models`` is ignored.
 
     Parameters
     ----------
@@ -132,14 +137,15 @@ def build_settings(args: argparse.Namespace, seed: int) -> dict[str, Any]:
     dict
         JSON-serialisable settings, the content of the manifest.
     """
+    molecules = as_int_list(args.n_molecules)
     return {
         "forward_model": args.forward_model,
         "orthoboxy": bool(args.orthoboxy),
         "lammps_cmd": args.lammps_cmd,
-        "molecules": as_int_list(args.n_molecules),
-        "n_models": int(args.n_models),
+        "molecules": molecules,
+        "n_models": len(molecules),
         "subchain_lengths": resolve_subchain_lengths(
-            args.n_mc_subchain_lengths, args.n_models
+            args.n_mc_subchain_lengths, len(molecules)
         ),
         "chain_length": int(args.n_mc_chain_length),
         "burnin": int(args.n_mc_burnin),
@@ -148,7 +154,31 @@ def build_settings(args: argparse.Namespace, seed: int) -> dict[str, Any]:
         "seed": int(seed),
         "version": __version__,
         "git_hash": _git_hash(),
+        "print_level": int(getattr(args, "print_level", 0)),
     }
+
+
+def config_from_settings(settings: dict[str, Any]) -> MFDAConfig:
+    """Build the algorithm settings from the manifest settings.
+
+    Parameters
+    ----------
+    settings : dict
+        Manifest settings (see :func:`build_settings`).
+
+    Returns
+    -------
+    MFDAConfig
+        Algorithm settings.
+    """
+    return make_config(
+        settings["molecules"],
+        settings["subchain_lengths"],
+        settings["params"],
+        settings["chain_length"],
+        settings["burnin"],
+        print_level=settings["print_level"],
+    )
 
 
 def write_manifest(path: Path, settings: dict[str, Any]) -> None:
@@ -264,6 +294,9 @@ def prepare_run(args: argparse.Namespace) -> tuple[Path, dict[str, Any], bool]:
         If the summary file already exists.
     """
     build_config(args)  # validation only, raises ValueError
+    if args.n_mc_burnin == 0:
+        # printed here, not per chain, so that it appears once per run
+        print("Warning: --mcburnin 0, no burn-in is discarded.")
     workdir = Path(args.workdir)
     manifest = workdir / MANIFEST_NAME
     summary = _summary_path(workdir, args.output)
@@ -333,28 +366,20 @@ def _run_one_chain(
         ``chain``, ``estimator`` (list), ``n_hits``, ``n_computed``.
     """
     workdir = Path(workdir_str)
-    config = make_config(
-        settings["molecules"], settings["subchain_lengths"], settings["params"]
-    )
+    config = config_from_settings(settings)
     cache_dir = workdir / "cache" / f"chain_{chain:03d}"
     # each chain has its own cache so that processes never write to the same files
     forward = CachedForwardModel(make_inner_model(settings, cache_dir), cache_dir)
     rng = np.random.default_rng([settings["seed"], chain])
 
-    result = run_chain(
-        config,
-        forward,
-        rng,
-        settings["chain_length"],
-        settings["burnin"],
-        settings["seed"],
-    )
+    if config.print_level == 1:
+        # with several chains the debug output of the processes interleaves
+        print(f"Chain {chain:03d}: start.")
+    result = run_chain(config, forward, rng, settings["seed"])
 
     final = workdir / f"chain_{chain:03d}.hdf5"
     tmp = workdir / f".chain_{chain:03d}.{os.getpid()}.tmp.hdf5"
-    write_results(
-        tmp, result, config, {**settings, "chain": chain}, settings["chain_length"]
-    )
+    write_results(tmp, result, config, {**settings, "chain": chain})
     try:
         # os.link fails if the final file exists: results are never overwritten
         os.link(tmp, final)
@@ -536,9 +561,7 @@ def markov_chain_eval(args: argparse.Namespace) -> int:
             "evaluations are kept; rerun the same command to continue."
         )
 
-    config = make_config(
-        settings["molecules"], settings["subchain_lengths"], settings["params"]
-    )
+    config = config_from_settings(settings)
     combined = write_summary(_summary_path(workdir, args.output), results, settings)
     ests = np.array([r["estimator"] for r in results])
     for r in results:

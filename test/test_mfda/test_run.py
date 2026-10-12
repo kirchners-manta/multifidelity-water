@@ -58,8 +58,29 @@ def test_complete_run(tmp_path: Path) -> None:
     assert (wd / "default.hdf5").exists()
     assert list((wd / "cache" / "chain_000").glob("N*/*/result.json"))
     chain = read_chain(wd)
-    assert chain["samples_level1"].shape == (6, 3)
-    assert chain["samples_level3"].shape == (6 * 2 * 3, 3)
+    # B = 2 is run in addition: K_1 = M_1 = 8
+    assert chain["samples_level1"].shape == (8, 3)
+    assert chain["samples_level3"].shape == (8 * 2 * 3, 3)
+    with h5py.File(wd / "chain_000.hdf5", "r") as f:
+        assert f.attrs["chain_length"] == 8
+        assert f.attrs["n_burnin"] == 2
+        assert f.attrs["n_steps_total"] == 10
+
+
+def test_burnin_zero_warns_once(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    markov_chain_eval(make_args(tmp_path / "run", "--mcburnin", "0", "--chains", "2"))
+    assert capsys.readouterr().out.count("--mcburnin 0") == 1
+
+
+def test_print_level_not_compared(tmp_path: Path) -> None:
+    wd = tmp_path / "run"
+    markov_chain_eval(make_args(wd))
+    args = make_args(wd, "-o", "other.hdf5")
+    args.print_level = 1
+    _, settings, restart = run_manager.prepare_run(args)
+    assert restart and settings["print_level"] == 1
 
 
 class Interrupted:
@@ -176,7 +197,7 @@ def test_single_subchain_value_is_broadcast() -> None:
         ["--models", "3", "--molecules", "64", "32", "16", "--mcsubchainlength", "4"]
     )
     assert build_config(args).subchain_lengths == (4, 4)
-    args = parser().parse_args(["--models", "3", "--molecules", "64", "32", "16"])
+    args = parser().parse_args(["--molecules", "64", "32", "16"])
     assert build_config(args).subchain_lengths == (10, 10)
     assert args.n_mc_chain_length == 1000 and args.n_mc_burnin == 100
 

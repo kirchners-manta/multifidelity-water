@@ -13,9 +13,9 @@ import h5py
 import numpy as np
 
 from ..argparser import constants
+from .forward_model import ForwardModel
 from .multifidelity_mcmc import (
     ChainState,
-    ForwardCallable,
     MFDAConfig,
     mfda_estimator,
     mfda_step,
@@ -44,10 +44,12 @@ class ChainResult:
         Multilevel estimator ``(eps, sigma, q)``.
     contributions : list[np.ndarray]
         Contribution of each level to the estimator (level 1 first).
-    seed : int
-        Entropy used to seed the random generator.
+    seed : int or None
+        Seed entropy of the run (``None`` if not recorded); the chain's
+        generator is ``default_rng([seed, chain])``.
     n_burnin : int
-        Number of discarded fine-level steps.
+        Number of discarded burn-in steps ``B`` on the fine level (the chain ran
+        ``B + M_1`` fine steps, the stored lists hold the ``M_1`` kept ones).
     """
 
     samples: list[np.ndarray]
@@ -60,29 +62,26 @@ class ChainResult:
 
 def run_chain(
     config: MFDAConfig,
-    forward: ForwardCallable,
+    forward: ForwardModel,
     rng: np.random.Generator,
-    chain_length: int,
-    n_burnin: int,
     seed: int | None = None,
 ) -> ChainResult:
     """Run one MFDA chain on the finest level.
 
-    All entries (all levels, samples and proposals) produced during the first
-    ``n_burnin`` fine-level steps, including their subchains, are discarded.
+    The chain runs ``B + M_1`` fine-level steps (``B = config.n_burnin``,
+    ``M_1 = config.chain_length``). All entries (all levels, samples and
+    proposals) produced during the first ``B`` fine-level steps, including
+    their subchains, are discarded, so the finest level keeps exactly ``M_1``
+    samples.
 
     Parameters
     ----------
     config : MFDAConfig
-        Algorithm settings.
-    forward : ForwardCallable
+        Algorithm settings, including chain length and burn-in.
+    forward : ForwardModel
         Forward model ``forward(n_molecules, theta) -> D`` (cached by the caller).
     rng : np.random.Generator
         The single random number generator of the algorithm.
-    chain_length : int
-        Fixed number of fine-level steps ``M_1``.
-    n_burnin : int
-        Number of burn-in steps ``B`` on the fine level.
     seed : int, optional
         Seed entropy, only stored in the result.
 
@@ -90,19 +89,7 @@ def run_chain(
     -------
     ChainResult
         Post-burn-in samples, proposals and estimator.
-
-    Raises
-    ------
-    ValueError
-        If ``chain_length < 1`` or ``not 0 <= n_burnin < chain_length``.
     """
-    if chain_length < 1:
-        raise ValueError(f"Chain length must be >= 1, got {chain_length}.")
-    if not 0 <= n_burnin < chain_length:
-        raise ValueError(
-            f"Burn-in must satisfy 0 <= B < chain length ({chain_length}), got {n_burnin}."
-        )
-
     state = ChainState.empty(config.n_levels)
 
     # initial sample theta_0 ~ N(mu, Sigma) on the free components
@@ -110,9 +97,9 @@ def run_chain(
 
     # B = 0 keeps everything, i.e. cut at zero entries
     cut: tuple[list[int], list[int]] = ([0] * config.n_levels, [0] * config.n_levels)
-    for step in range(1, chain_length + 1):
+    for step in range(1, config.n_burnin + config.chain_length + 1):
         current = mfda_step(current, 1, config, state, forward, rng)
-        if step == n_burnin:
+        if step == config.n_burnin:
             # list lengths after step B mark the end of the burn-in on every level
             cut = state.lengths()
 
@@ -122,7 +109,9 @@ def run_chain(
     proposals = [np.asarray(p, dtype=float).reshape(-1, 3) for p in state.proposals]
     estimator, contributions = mfda_estimator(samples, proposals)
 
-    return ChainResult(samples, proposals, estimator, contributions, seed, n_burnin)
+    return ChainResult(
+        samples, proposals, estimator, contributions, seed, config.n_burnin
+    )
 
 
 def as_int_list(value: int | Sequence[int] | None) -> list[int]:
@@ -149,32 +138,36 @@ def as_int_list(value: int | Sequence[int] | None) -> list[int]:
 
 
 def resolve_subchain_lengths(
-    lengths: int | Sequence[int] | None, n_models: int
+    lengths: int | Sequence[int] | None, n_levels: int
 ) -> list[int]:
     """Expand a single ``--mcsubchainlength`` value to all coarse levels.
 
     Parameters
     ----------
-    lengths : Sequence[int] or None
+    lengths : int, Sequence[int] or None
         Subchain lengths as given on the command line.
-    n_models : int
-        Number of levels ``eta``.
+    n_levels : int
+        Number of levels ``eta`` (``len(--molecules)``).
 
     Returns
     -------
     list[int]
-        The lengths unchanged, or one value repeated ``n_models - 1`` times if
+        The lengths unchanged, or one value repeated ``n_levels - 1`` times if
         exactly one value was given. ``None`` is returned as an empty list so
-        that the caller reports the wrong length.
+        that :class:`MFDAConfig` reports the wrong length.
     """
     values = as_int_list(lengths)
     if len(values) == 1:
-        return values * max(n_models - 1, 0)
+        return values * max(n_levels - 1, 0)
     return values
 
 
 def build_config(args: argparse.Namespace) -> MFDAConfig:
-    """Validate the command line arguments and build the algorithm settings.
+    """Build the algorithm settings from the command line arguments.
+
+    Only CLI-specific work is done here (normalising list values); all
+    algorithm rules are checked by :class:`MFDAConfig`. The number of levels is
+    ``len(--molecules)``; ``--models`` is ignored.
 
     Parameters
     ----------
@@ -189,39 +182,19 @@ def build_config(args: argparse.Namespace) -> MFDAConfig:
     Raises
     ------
     ValueError
-        If the number of models, molecule numbers, subchain lengths or chain
-        lengths are invalid, or no parameter is calibrated.
+        If ``--molecules`` is missing or :class:`MFDAConfig` rejects the settings.
     """
-    if args.n_models < 2:
-        raise ValueError(f"At least 2 models are required, got {args.n_models}.")
     molecules = as_int_list(args.n_molecules)
-    if len(molecules) != args.n_models:
-        raise ValueError(
-            f"--molecules must list {args.n_models} values (one per model), "
-            f"got {molecules}."
-        )
-    if any(a <= b for a, b in zip(molecules[:-1], molecules[1:])):
-        raise ValueError(
-            f"--molecules must be strictly descending (level 1 = finest), got {molecules}."
-        )
-    sub = resolve_subchain_lengths(args.n_mc_subchain_lengths, args.n_models)
-    if len(sub) != args.n_models - 1:
-        raise ValueError(
-            f"--mcsubchainlength must list {args.n_models - 1} values "
-            f"(levels 2..{args.n_models}), got {sub}."
-        )
-    if any(m < 1 for m in sub):
-        raise ValueError(f"Subchain lengths must be >= 1, got {sub}.")
-    if args.n_mc_chain_length < 1:
-        raise ValueError(f"--mcchainlength must be >= 1, got {args.n_mc_chain_length}.")
-    if not 0 <= args.n_mc_burnin < args.n_mc_chain_length:
-        raise ValueError(
-            f"--mcburnin must satisfy 0 <= B < mcchainlength ({args.n_mc_chain_length}), "
-            f"got {args.n_mc_burnin}."
-        )
-
+    if not molecules:
+        raise ValueError("--molecules is required.")
+    sub = resolve_subchain_lengths(args.n_mc_subchain_lengths, len(molecules))
     return make_config(
-        molecules, sub, args.params, print_level=getattr(args, "print_level", 0)
+        molecules,
+        sub,
+        args.params,
+        int(args.n_mc_chain_length),
+        int(args.n_mc_burnin),
+        print_level=getattr(args, "print_level", 0),
     )
 
 
@@ -229,6 +202,8 @@ def make_config(
     molecules: Sequence[int],
     subchain_lengths: Sequence[int],
     params: str,
+    chain_length: int,
+    n_burnin: int,
     print_level: int = 0,
 ) -> MFDAConfig:
     """Build the :class:`MFDAConfig` with the OPC3 prior ``N(mu, diag(s**2))``.
@@ -241,6 +216,10 @@ def make_config(
         Subchain lengths for levels ``2..eta``.
     params : str
         Which parameters are calibrated: ``"lj"``, ``"q"`` or ``"lj-q"``.
+    chain_length : int
+        Fine-level steps ``M_1`` kept after the burn-in.
+    n_burnin : int
+        Burn-in steps ``B`` on the fine level (run in addition to ``M_1``).
     print_level : int
         ``0`` = silent, ``1`` = debug.
 
@@ -252,7 +231,7 @@ def make_config(
     Raises
     ------
     ValueError
-        If ``params`` is unknown or settings are inconsistent.
+        If ``params`` is unknown or :class:`MFDAConfig` rejects the settings.
     """
     if params not in _FREE_MASKS:
         raise ValueError(f"Unknown params '{params}', choose from {list(_FREE_MASKS)}.")
@@ -274,6 +253,8 @@ def make_config(
         means=means,
         kernel_noise=noise,
         free_mask=np.array(_FREE_MASKS[params], dtype=bool),
+        chain_length=int(chain_length),
+        n_burnin=int(n_burnin),
         print_level=print_level,
     )
 
@@ -283,9 +264,12 @@ def write_results(
     result: ChainResult,
     config: MFDAConfig,
     args: dict[str, Any],
-    chain_length: int,
 ) -> None:
     """Write a chain result to a new HDF5 file.
+
+    Attributes ``n_burnin`` (``B``), ``chain_length`` (``M_1``, fine-level steps
+    kept) and ``n_steps_total`` (``B + M_1``, fine-level steps run) record the
+    chain length; the stored lists contain only post-burn-in entries.
 
     Parameters
     ----------
@@ -297,8 +281,6 @@ def write_results(
         Algorithm settings (stored as attributes).
     args : dict
         Command line arguments (stored as JSON).
-    chain_length : int
-        Fine-level chain length ``M_1``.
 
     Raises
     ------
@@ -322,7 +304,8 @@ def write_results(
         f.attrs["seed"] = str(result.seed)
         f.attrs["args"] = json.dumps(args, default=str)
         f.attrs["n_burnin"] = result.n_burnin
-        f.attrs["chain_length"] = chain_length
+        f.attrs["chain_length"] = config.chain_length
+        f.attrs["n_steps_total"] = config.n_burnin + config.chain_length
         f.attrs["molecules"] = np.array(config.molecules)
         f.attrs["subchain_lengths"] = np.array(config.subchain_lengths)
         f.attrs["free_mask"] = config.free_mask

@@ -31,7 +31,8 @@ class ForwardModel(Protocol):
     (see :class:`mfwater.algo_mfda.cache.CachedForwardModel`).
     """
 
-    def __call__(self, n_molecules: int, theta: np.ndarray) -> float:
+    # positional-only, so that plain functions with other parameter names also match
+    def __call__(self, n_molecules: int, theta: np.ndarray, /) -> float:
         """Evaluate the forward model.
 
         Parameters

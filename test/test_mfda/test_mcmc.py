@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from mfwater.algo_mfda.cache import CachedForwardModel
+from mfwater.algo_mfda.forward_model import ForwardModel
 from mfwater.algo_mfda.markov_chain import (
     ChainResult,
     build_config,
@@ -18,7 +18,6 @@ from mfwater.algo_mfda.markov_chain import (
 )
 from mfwater.algo_mfda.multifidelity_mcmc import (
     MFDAConfig,
-    log_prior,
     mfda_estimator,
     proposal_kernel,
 )
@@ -55,7 +54,7 @@ def make_args(**kw: object) -> argparse.Namespace:
 
 def run(
     seed: int = 0,
-    forward: Callable[[int, np.ndarray], float] = toy_forward,
+    forward: ForwardModel = toy_forward,
     mols: tuple[int, ...] = (64, 32, 16),
     sub: tuple[int, ...] = (2, 3),
     m1: int = 6,
@@ -63,8 +62,8 @@ def run(
     params: str = "lj-q",
 ) -> tuple[ChainResult, MFDAConfig]:
     """Run a small chain and return (result, config)."""
-    cfg = make_config(mols, sub, params)
-    res = run_chain(cfg, forward, np.random.default_rng(seed), m1, burn, seed)
+    cfg = make_config(mols, sub, params, m1, burn)
+    res = run_chain(cfg, forward, np.random.default_rng(seed), seed)
     return res, cfg
 
 
@@ -72,8 +71,12 @@ def run(
     "mols,sub,m1",
     [((64, 32), (3,), 10), ((64, 32, 16), (2, 3), 6), ((64, 32, 16), (1, 1), 4)],
 )
-def test_list_lengths(mols: tuple[int, ...], sub: tuple[int, ...], m1: int) -> None:
-    res, _ = run(mols=mols, sub=sub, m1=m1)
+@pytest.mark.parametrize("burn", [0, 3])
+def test_list_lengths(
+    mols: tuple[int, ...], sub: tuple[int, ...], m1: int, burn: int
+) -> None:
+    # K_1 = M_1 independent of the burn-in
+    res, _ = run(mols=mols, sub=sub, m1=m1, burn=burn)
     k = m1
     for i in range(len(mols)):
         assert len(res.samples[i]) == k
@@ -92,18 +95,21 @@ def test_proposals_are_subchain_elements() -> None:
             assert any(np.array_equal(prop, s) for s in sub)
 
 
-def test_burnin_removes_first_b_steps() -> None:
-    full, _ = run(burn=0, m1=8)
-    cut, _ = run(burn=3, m1=8)
-    # level i has M_1 * prod(M~) entries per fine step: 1, 2, 6
+@pytest.mark.parametrize("burn", [1, 3])
+def test_burnin_is_added_to_chain_length(burn: int) -> None:
+    # the un-truncated run has B + M_1 fine steps; the kept part is its tail
+    full, _ = run(burn=0, m1=8 + burn)
+    cut, _ = run(burn=burn, m1=8)
+    # level i has prod(M~) entries per fine step: 1, 2, 6
     per_step = [1, 2, 6]
     for i, n in enumerate(per_step):
-        assert len(cut.samples[i]) == (8 - 3) * n
-        np.testing.assert_array_equal(cut.samples[i], full.samples[i][3 * n :])
+        assert len(cut.samples[i]) == 8 * n
+        np.testing.assert_array_equal(cut.samples[i], full.samples[i][burn * n :])
     for i in range(2):
         np.testing.assert_array_equal(
-            cut.proposals[i], full.proposals[i][3 * per_step[i] :]
+            cut.proposals[i], full.proposals[i][burn * per_step[i] :]
         )
+    assert cut.n_burnin == burn
 
 
 def test_seed_reproducibility() -> None:
@@ -117,12 +123,12 @@ def test_seed_reproducibility() -> None:
 
 
 def test_rng_independent_of_caching(tmp_path: Path) -> None:
-    cfg = make_config((64, 32, 16), (2, 3), "lj-q")
+    cfg = make_config((64, 32, 16), (2, 3), "lj-q", 6, 0)
     rng1 = np.random.default_rng(3)
     memo = CachedForwardModel(ToyModel(), tmp_path / "cache")
-    r1 = run_chain(cfg, memo, rng1, 6, 0)
+    r1 = run_chain(cfg, memo, rng1)
     rng2 = np.random.default_rng(3)
-    r2 = run_chain(cfg, toy_forward, rng2, 6, 0)
+    r2 = run_chain(cfg, toy_forward, rng2)
     for x, y in zip(r1.samples, r2.samples):
         np.testing.assert_array_equal(x, y)
     # identical RNG state afterwards: same number of draws
@@ -140,18 +146,20 @@ def test_fixed_parameters_stay_at_mean() -> None:
 
 
 def test_invalid_inputs() -> None:
-    with pytest.raises(ValueError, match="At least 2"):
-        build_config(make_args(n_models=1, n_molecules=[8], n_mc_subchain_lengths=[]))
-    with pytest.raises(ValueError, match="--molecules must list"):
-        build_config(make_args(n_molecules=[64, 32]))
+    with pytest.raises(ValueError, match="At least two levels"):
+        build_config(make_args(n_molecules=[8], n_mc_subchain_lengths=[]))
+    with pytest.raises(ValueError, match="--molecules is required"):
+        build_config(make_args(n_molecules=None))
     with pytest.raises(ValueError, match="descending"):
         build_config(make_args(n_molecules=[64, 64, 16]))
     with pytest.raises(ValueError, match="--mcsubchainlength"):
         build_config(make_args(n_mc_subchain_lengths=[2, 3, 4]))
     with pytest.raises(ValueError, match="Subchain lengths"):
         build_config(make_args(n_mc_subchain_lengths=[2, 0]))
+    with pytest.raises(ValueError, match="--mcchainlength"):
+        build_config(make_args(n_mc_chain_length=0))
     with pytest.raises(ValueError, match="--mcburnin"):
-        build_config(make_args(n_mc_burnin=6))
+        build_config(make_args(n_mc_burnin=-1))
     with pytest.raises(ValueError, match="No free"):
         MFDAConfig(
             (8, 4),
@@ -159,13 +167,31 @@ def test_invalid_inputs() -> None:
             np.zeros(3),
             np.ones(3),
             np.zeros(3, dtype=bool),
+            1,
+            0,
         )
-    with pytest.raises(ValueError, match="No free"):
-        log_prior(np.zeros(3), np.zeros(3), np.ones(3), np.zeros(3, dtype=bool))
-    with pytest.raises(ValueError, match="Burn-in"):
-        run(burn=6, m1=6)
     with pytest.raises(ValueError, match="same shape"):
         proposal_kernel(np.zeros(3), np.ones(2), np.random.default_rng(0))
+
+
+def test_burnin_larger_than_chain_length_is_allowed() -> None:
+    res, _ = run(burn=10, m1=2)
+    assert len(res.samples[0]) == 2
+
+
+def test_models_option_is_ignored() -> None:
+    # the number of levels follows --molecules, not --models
+    assert build_config(make_args(n_models=7)).n_levels == 3
+
+
+def test_config_arrays_are_read_only() -> None:
+    means = np.zeros(3)
+    cfg = MFDAConfig((8, 4), (1,), means, np.ones(3), np.ones(3, dtype=bool), 1, 0)
+    for arr in (cfg.means, cfg.kernel_noise, cfg.free_mask):
+        with pytest.raises(ValueError, match="read-only"):
+            arr[0] = 1
+    means[0] = 5.0  # the caller's array is untouched and still writable
+    assert cfg.means[0] == 0.0
 
 
 def test_estimator_formula() -> None:

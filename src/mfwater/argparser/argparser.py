@@ -410,7 +410,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         dest="n_models",
         default=6,
         action=action_not_less_than(1),
-        help="R|Number of models to be used.",
+        help="R|Number of models to be used. Ignored by markov-chain; the number of levels follows --molecules.",
     )
     p.add_argument(
         "--molecules",
@@ -444,7 +444,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         dest="n_mc_chain_length",
         default=1000,
         action=action_not_less_than(1),
-        help="R|Fixed number of steps M_1 of the Markov chain on the finest level (level 1).",
+        help="R|Number of steps M_1 of the Markov chain on the finest level (level 1) that are kept after the burn-in. The chain runs B + M_1 steps in total (B = --mcburnin).",
     )
     p.add_argument(
         "--mcsubchainlength",
@@ -453,7 +453,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         default=[10],
         action=action_not_less_than(1),
         nargs="+",
-        help="R|Fixed subchain lengths on the coarser levels 2..n_models (space separated, n_models - 1 values).\nEvery step on level i runs a subchain of this fixed length on level i+1.\nA single value is used for all coarse levels (default: 10).",
+        help="R|Fixed subchain lengths on the coarser levels 2..eta (space separated, len(--molecules) - 1 values).\nEvery step on level i runs a subchain of this fixed length on level i+1.\nA single value is used for all coarse levels (default: 10).",
     )
     p.add_argument(
         "--mcburnin",
@@ -461,7 +461,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         dest="n_mc_burnin",
         default=100,
         action=action_not_less_than(0),
-        help="R|Number of burn-in steps B on the finest level. All entries on all levels produced during these steps (including subchains) are discarded.",
+        help="R|Number of burn-in steps B on the finest level, run in addition to --mcchainlength (M_1), so B + M_1 steps in total. All entries on all levels produced during the first B steps (including subchains) are discarded. B = 0 is allowed (warning).",
     )
     p.add_argument(
         "--seed",

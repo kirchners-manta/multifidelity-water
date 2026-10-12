@@ -17,17 +17,16 @@ prior mean (reduced parameter space).
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
 
 from ..argparser import constants
-
-#: Signature of the forward model: ``forward(n_molecules, theta) -> D``.
-ForwardCallable = Callable[[int, np.ndarray], float]
+from .forward_model import ForwardModel
 
 
+# eq=False: array fields make the generated __eq__/__hash__ unusable (ambiguous
+# truth value of array comparison, unhashable arrays); identity semantics are used.
 @dataclass(frozen=True, eq=False)
 class MFDAConfig:
     """Immutable settings of the MFDA algorithm.
@@ -45,13 +44,20 @@ class MFDAConfig:
         Prior and kernel share the covariance ``Sigma = diag(s**2)``.
     free_mask : np.ndarray
         Boolean array of shape ``(3,)``, ``True`` for calibrated components.
+    chain_length : int
+        Number of fine-level steps ``M_1`` that are kept after the burn-in.
+    n_burnin : int
+        Number of burn-in steps ``B`` on the fine level; the chain runs
+        ``B + M_1`` fine steps in total and the first ``B`` are discarded.
     print_level : int
         ``0`` = silent, ``1`` = debug output.
 
     Raises
     ------
     ValueError
-        If array shapes are inconsistent, no component is free, or lengths do not match.
+        If array shapes are inconsistent, no component is free, molecule
+        numbers are not strictly descending, a length is out of range, or the
+        number of subchain lengths does not match the number of levels.
     """
 
     molecules: tuple[int, ...]
@@ -59,23 +65,47 @@ class MFDAConfig:
     means: np.ndarray
     kernel_noise: np.ndarray
     free_mask: np.ndarray
+    chain_length: int
+    n_burnin: int
     print_level: int = 0
 
     def __post_init__(self) -> None:
-        """Validate the configuration."""
+        """Validate the configuration and make the arrays read-only."""
         if len(self.molecules) < 2:
-            raise ValueError("At least two levels (models) are required.")
+            raise ValueError(
+                "At least two levels are required (--molecules needs two or more values)."
+            )
+        if any(a <= b for a, b in zip(self.molecules[:-1], self.molecules[1:])):
+            raise ValueError(
+                "Molecule numbers must be strictly descending (level 1 = finest), "
+                f"got {list(self.molecules)}."
+            )
         if len(self.subchain_lengths) != len(self.molecules) - 1:
             raise ValueError(
-                f"Expected {len(self.molecules) - 1} subchain lengths, "
+                f"Expected {len(self.molecules) - 1} subchain lengths "
+                f"(--mcsubchainlength, levels 2..{len(self.molecules)}), "
                 f"got {len(self.subchain_lengths)}."
             )
+        if any(m < 1 for m in self.subchain_lengths):
+            raise ValueError(
+                f"Subchain lengths must be >= 1, got {list(self.subchain_lengths)}."
+            )
+        if self.chain_length < 1:
+            raise ValueError(f"--mcchainlength must be >= 1, got {self.chain_length}.")
+        if self.n_burnin < 0:
+            raise ValueError(f"--mcburnin must be >= 0, got {self.n_burnin}.")
         if not (self.means.shape == self.kernel_noise.shape == self.free_mask.shape):
             raise ValueError("means, kernel_noise and free_mask must share one shape.")
         if not np.any(self.free_mask):
             raise ValueError(
                 "No free parameter: at least one component must be calibrated."
             )
+        # Frozen only blocks attribute assignment; read-only copies of the arrays
+        # also protect their contents (and the caller's arrays stay untouched).
+        for name in ("means", "kernel_noise", "free_mask"):
+            arr = np.array(getattr(self, name))
+            arr.setflags(write=False)
+            object.__setattr__(self, name, arr)
 
     @property
     def n_levels(self) -> int:
@@ -165,7 +195,7 @@ def mfda_step(
     level: int,
     config: MFDAConfig,
     state: ChainState,
-    forward: ForwardCallable,
+    forward: ForwardModel,
     rng: np.random.Generator,
 ) -> np.ndarray:
     """Perform one delayed-acceptance step on a level ``i < eta``.
@@ -185,7 +215,7 @@ def mfda_step(
         Algorithm settings.
     state : ChainState
         Storage that is appended to.
-    forward : ForwardCallable
+    forward : ForwardModel
         Forward model ``forward(n_molecules, theta) -> D``.
     rng : np.random.Generator
         The single random number generator of the algorithm.
@@ -235,7 +265,7 @@ def multifidelity_markov_chain(
     length: int,
     config: MFDAConfig,
     state: ChainState,
-    forward: ForwardCallable,
+    forward: ForwardModel,
     rng: np.random.Generator,
 ) -> list[np.ndarray]:
     """Generate a chain of fixed length on a level ``i < eta``.
@@ -252,7 +282,7 @@ def multifidelity_markov_chain(
         Algorithm settings.
     state : ChainState
         Storage that is appended to (samples of this and all coarser levels).
-    forward : ForwardCallable
+    forward : ForwardModel
         Forward model ``forward(n_molecules, theta) -> D``.
     rng : np.random.Generator
         The single random number generator of the algorithm.
@@ -284,7 +314,7 @@ def chemical_mh(
     length: int,
     config: MFDAConfig,
     state: ChainState,
-    forward: ForwardCallable,
+    forward: ForwardModel,
     rng: np.random.Generator,
 ) -> list[np.ndarray]:
     """Metropolis-Hastings on the coarsest level with the chemical forward model.
@@ -301,7 +331,7 @@ def chemical_mh(
         Algorithm settings.
     state : ChainState
         Storage that is appended to.
-    forward : ForwardCallable
+    forward : ForwardModel
         Forward model ``forward(n_molecules, theta) -> D``.
     rng : np.random.Generator
         The single random number generator of the algorithm.
@@ -353,7 +383,7 @@ def acceptance_probability(
     n_coarse: int,
     current_sample: np.ndarray,
     proposal: np.ndarray,
-    forward: ForwardCallable,
+    forward: ForwardModel,
 ) -> float:
     """Delayed-acceptance probability of a proposal from the coarser level.
 
@@ -370,7 +400,7 @@ def acceptance_probability(
         Current sample ``theta``.
     proposal : np.ndarray
         Proposed sample ``theta'``.
-    forward : ForwardCallable
+    forward : ForwardModel
         Forward model ``forward(n_molecules, theta) -> D``.
 
     Returns
@@ -478,7 +508,8 @@ def log_prior(
     kernel_noise : np.ndarray
         Prior standard deviations.
     free_mask : np.ndarray
-        Boolean mask of calibrated components.
+        Boolean mask of calibrated components (at least one ``True``, guaranteed
+        by :class:`MFDAConfig`, which is the only caller).
 
     Returns
     -------
@@ -488,15 +519,13 @@ def log_prior(
     Raises
     ------
     ValueError
-        If the shapes differ or no component is free.
+        If the shapes differ.
     """
     if not (sample.shape == means.shape == kernel_noise.shape == free_mask.shape):
         raise ValueError(
             f"sample {sample.shape}, means {means.shape}, kernel_noise "
             f"{kernel_noise.shape} and free_mask {free_mask.shape} must share one shape."
         )
-    if not np.any(free_mask):
-        raise ValueError("No free parameter: the prior is undefined.")
 
     # Reduced parameter space: non-calibrated components are not random variables
     # (they are fixed at mu by construction), so they carry no prior density and
