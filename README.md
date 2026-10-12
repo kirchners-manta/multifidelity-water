@@ -39,6 +39,24 @@ After that, the `mfmc` step can be executed.
 
 For a detailed description of the algorithms, see the [Algorithms](#algorithms) section below.
 
+As the number of options is large, all options can also be given in a [TOML](https://toml.io/en/) configuration file, which is read with `-c`/`--config`:
+```bash
+mfwater -c my_config.toml
+```
+The keys are the long option names without the leading dashes (`molecules`, `mcchainlength`, `forward-model`, ...; `-` and `_` are interchangeable), or the short options' names `algorithm`, `input` and `output`. Lists are TOML arrays, flags are booleans:
+```toml
+algorithm     = "markov-chain"
+forward-model = "md"
+models        = 3
+molecules     = [1000, 500, 100]
+mcchainlength = 1000
+mcburnin      = 100
+params        = "lj"
+orthoboxy     = false
+seed          = 1
+```
+**Note:** Options in the configuration file override options given on the command line (and the defaults). Values are checked like on the command line, and unknown keys are rejected. A `false` flag does not switch off a flag given on the command line.
+
 The program operates on HDF5 files containing information on the models, which can for example be inspected using the `h5dump` command, e.g., like:
 ```bash
 h5dump -n 1 somefile.hdf5

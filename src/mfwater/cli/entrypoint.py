@@ -11,7 +11,7 @@ from ..algo_mfda import markov_chain_eval, mfda_ncpu, mfda_smoke
 from ..algo_mfmc import multifidelity_monte_carlo
 from ..algo_mfmc_preparation import multifidelity_preparation
 from ..algo_model_selection import select_optimal_models
-from ..argparser import parser
+from ..argparser import parse_args, parser
 
 
 def console_entry_point(argv: Sequence[str] | None = None) -> int:
@@ -27,7 +27,7 @@ def console_entry_point(argv: Sequence[str] | None = None) -> int:
     int
         Exit code, ``0`` for success.
     """
-    args = parser().parse_args(argv)
+    args = parse_args(parser(), argv)
 
     if args.algorithm == "build":
         return build_default_input(args)

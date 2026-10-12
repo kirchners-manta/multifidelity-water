@@ -7,11 +7,18 @@ Command line parser utilities for MFWater.
 from __future__ import annotations
 
 import argparse
+import sys
+from collections.abc import Sequence
 from numbers import Real
 from pathlib import Path
 from typing import Any
 
 from .. import __version__
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover
+    import tomli as tomllib
 
 
 def is_file(path: str | Path) -> str | Path:
@@ -356,6 +363,15 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         default=None,
     )
     p.add_argument(
+        "-c",
+        "--config",
+        type=is_file,
+        dest="config",
+        metavar="CONFIG_FILE",
+        default=None,
+        help="R|Configuration file in TOML format. Its keys are the option names (e.g. 'molecules = [1000, 500, 100]', 'orthoboxy = true'). Options in the file override those on the command line.",
+    )
+    p.add_argument(
         "-i",
         type=is_file,
         dest="input",
@@ -491,3 +507,102 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         help="R|Show version and exit.",
     )
     return p
+
+
+def config_to_argv(p: argparse.ArgumentParser, options: dict[str, Any]) -> list[str]:
+    """Translate the contents of a configuration file into command line tokens.
+
+    Going through the parser (instead of updating the parsed namespace) keeps
+    all type conversions, ``choices`` and value checks of the command line.
+
+    Parameters
+    ----------
+    p : argparse.ArgumentParser
+        Parser defining the valid options.
+    options : dict[str, Any]
+        Mapping from option name to value, as read from the TOML file. A key is
+        either the destination name (e.g. ``n_molecules``) or the name of a
+        long option (e.g. ``molecules``); ``-`` and ``_`` are interchangeable.
+
+    Returns
+    -------
+    list[str]
+        Command line tokens equivalent to the configuration file.
+
+    Raises
+    ------
+    SystemExit
+        If a key is unknown or a value has the wrong form (reported through
+        ``p.error``, like an invalid command line).
+    """
+    # map every accepted spelling of a key to its action
+    lookup: dict[str, argparse.Action] = {}
+    # pylint: disable=protected-access
+    for action in p._actions:
+        if action.dest in ("help", "version", "config"):
+            continue
+        lookup[action.dest.replace("-", "_")] = action
+        for opt in action.option_strings:
+            lookup[opt.lstrip("-").replace("-", "_")] = action
+
+    tokens: list[str] = []
+    for key, value in options.items():
+        match = lookup.get(key.replace("-", "_"))
+        if match is None:
+            p.error(f"unknown option '{key}' in configuration file")
+        action = match
+
+        # longest option string is the most descriptive one
+        flag = max(action.option_strings, key=len)
+        if action.nargs == 0:  # store_true flags take no value
+            if not isinstance(value, bool):
+                p.error(f"option '{key}' in configuration file must be true or false")
+            if value:
+                tokens.append(flag)
+            continue
+        values = value if isinstance(value, list) else [value]
+        if isinstance(value, bool) or any(isinstance(v, (bool, dict)) for v in values):
+            p.error(f"invalid value for option '{key}' in configuration file")
+        tokens += [flag, *(str(v) for v in values)]
+
+    return tokens
+
+
+def parse_args(
+    p: argparse.ArgumentParser, argv: Sequence[str] | None = None
+) -> argparse.Namespace:
+    """Parse command line arguments, including an optional TOML configuration file.
+
+    The configuration file is read after the first pass over the command line.
+    Its options are appended to the command line and parsed again, so they
+    override the options given on the command line (as in the AIMD setup tool).
+
+    Parameters
+    ----------
+    p : argparse.ArgumentParser
+        Parser created by `parser`.
+    argv : Sequence[str], optional
+        Command line arguments, by default ``sys.argv[1:]``.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed arguments.
+
+    Raises
+    ------
+    SystemExit
+        If the command line or the configuration file is invalid.
+    """
+    args_list = list(sys.argv[1:] if argv is None else argv)
+    args = p.parse_args(args_list)
+    if args.config is None:
+        return args
+
+    try:
+        with open(args.config, "rb") as f:
+            options = tomllib.load(f)
+    except tomllib.TOMLDecodeError as exc:
+        p.error(f"cannot parse configuration file '{args.config}': {exc}")
+
+    return p.parse_args(args_list + config_to_argv(p, options))
