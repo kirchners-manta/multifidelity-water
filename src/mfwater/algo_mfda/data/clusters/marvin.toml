@@ -1,0 +1,39 @@
+# Cluster profile of Marvin (Uni Bonn). To add a cluster, copy this file and edit it, then use
+# `mfwater -a mfda-jobscript --cluster-file my_cluster.toml -c run.toml`.
+scheduler = "slurm"
+
+# Cores of one node of the partition below; all chains share one node, so the
+# total number of MPI tasks must fit. Source: `sinfo -p intelsr_long -o "%c"` (2026-10-12).
+cores_per_node = 96
+
+[slurm]
+partition = "intelsr_long"
+account = "ag_mctc_kirchner"
+time = "7-00:00:00"
+extra = []                      # further "#SBATCH ..." lines, e.g. ["--mem-per-cpu=4G"]
+
+[environment]
+# Reproduces the working smoke-test job 28146749. The script defines MFWATER (the
+# mfwater executable of the conda environment), which the job script uses.
+# fftool must be d89546c or newer (needs the --lmp option).
+setup = """
+# Order matters: the LAMMPS module puts a Python 3.10 SciPy-bundle on PYTHONPATH,
+# which shadows the conda numpy (ImportError). Load the module after activating
+# conda (so its OpenMPI is found before the env mpich), then drop PYTHONPATH.
+source ~/miniforge3/etc/profile.d/conda.sh
+conda activate mfwater
+MFWATER="${CONDA_PREFIX}/bin/mfwater"
+module load LAMMPS/23Jun2022-foss-2022a-kokkos
+unset PYTHONPATH
+# fftool starts with `#!/usr/bin/env python` and needs numpy: give it the conda python
+# via a shim dir (putting the whole env bin first would hide the module OpenMPI).
+SHIM=$(mktemp -d)
+ln -s "${CONDA_PREFIX}/bin/python" "${SHIM}/python"
+export PATH="${SHIM}:$HOME/bin:$PATH"   # fftool, packmol, travis
+"""
+
+[lammps]
+# Several chains call mpirun concurrently. Open MPI would bind each mpirun to the
+# same first cores, hence --bind-to none. Alternative (untested):
+#   srun --exact -n {ncpu} lmp -i {input}
+cmd = "mpirun --bind-to none -np {ncpu} lmp -i {input}"

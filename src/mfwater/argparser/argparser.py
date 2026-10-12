@@ -357,6 +357,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
             "markov-chain",
             "mfda-smoke",
             "mfda-ncpu",
+            "mfda-jobscript",
         ],
         dest="algorithm",
         help="R|Which algorithm to execute.",
@@ -499,6 +500,28 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         dest="lammps_cmd",
         default="mpirun -np {ncpu} lmp -i {input}",
         help="R|Command template to run LAMMPS (placeholders {ncpu} and {input}), only used with '--forward-model md'.",
+    )
+    p.add_argument(
+        "--cluster",
+        type=str,
+        dest="cluster",
+        default=None,
+        help="R|Built-in cluster profile (e.g. 'marvin') for 'mfda-jobscript'.",
+    )
+    p.add_argument(
+        "--cluster-file",
+        type=is_file,
+        dest="cluster_file",
+        metavar="CLUSTER_FILE",
+        default=None,
+        help="R|Cluster profile file (TOML) for 'mfda-jobscript', alternative to --cluster.",
+    )
+    p.add_argument(
+        "--jobscript",
+        type=str,
+        dest="jobscript",
+        default=None,
+        help="R|Output file of 'mfda-jobscript' (default: run-mfda-<cluster>.sh). An existing file is never overwritten.",
     )
     p.add_argument(
         "--version",
