@@ -501,6 +501,13 @@ def calc_cpus(n: int) -> int:
     """
     Calculate the number of CPUs to use for the simulation.
 
+    The thresholds come from a scaling benchmark on Marvin (Intel Sapphire Rapids
+    nodes, shared, LAMMPS 23Jun2022, OPC3 water, 100 000 timed steps, 5 replicas):
+    the largest core count whose parallel efficiency t(1) / (p * t(p)) stays at
+    about 0.7 or above. N = 32 gains at most a factor 1.7 from any number of cores.
+    The measured sizes were N = 32, 64, 128, 256, 512 and 1024; N >= 2000 was not
+    measured (the value 8 is kept from the previous version).
+
     Parameters
     ----------
     n : int
@@ -511,15 +518,11 @@ def calc_cpus(n: int) -> int:
     int
         The number of CPUs to use.
     """
-    # get the number of CPUs to use for the simulation
-
-    if n >= 2000:
+    if n >= 512:
         cpus = 8
-    elif n >= 1000:
-        cpus = 6
-    elif n >= 500:
+    elif n >= 256:
         cpus = 4
-    elif n >= 100:
+    elif n >= 64:
         cpus = 2
     else:
         cpus = 1

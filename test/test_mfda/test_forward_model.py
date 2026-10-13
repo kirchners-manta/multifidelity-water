@@ -351,7 +351,7 @@ def test_custom_lammps_cmd_and_msdiff_args(
     )
     model(1000, THETA)
     lammps = next(c[0] for c in calls if c[0][0] == "mpirun")
-    assert lammps[:5] == ["mpirun", "--bind-to", "none", "-np", "6"]
+    assert lammps[:5] == ["mpirun", "--bind-to", "none", "-np", "8"]  # calc_cpus(1000)
     msdiff = next(c[0] for c in calls if c[0][0] == "msdiff")
     assert msdiff[-3:] == ["--hummer", "330", "0.00089"]
     assert "--from-travis" in msdiff

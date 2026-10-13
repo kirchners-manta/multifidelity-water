@@ -273,7 +273,7 @@ def test_ncpu(capsys: pytest.CaptureFixture[str]) -> None:
         ["-a", "mfda-ncpu", "--molecules", "1000", "500", "--chains", "3"]
     )
     assert run_manager.mfda_ncpu(args) == 0
-    assert capsys.readouterr().out.strip() == "18"  # 3 * calc_cpus(1000) = 3 * 6
+    assert capsys.readouterr().out.strip() == "24"  # 3 * calc_cpus(1000) = 3 * 8
 
 
 def test_smoke(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
