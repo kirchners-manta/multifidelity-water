@@ -217,11 +217,11 @@ def test_manifest_stores_algorithm_version_and_git_dirty(tmp_path: Path) -> None
     wd = tmp_path / "run"
     markov_chain_eval(make_args(wd))
     data = json.loads((wd / "manifest.json").read_text())
-    assert data["algorithm_version"] == run_manager.ALGORITHM_VERSION
+    assert data["algorithm_version"] == run_manager.ALGORITHM_VERSION == 3
     assert "git_dirty" in data
 
 
-@pytest.mark.parametrize("old", [_DELETE, 1])
+@pytest.mark.parametrize("old", [_DELETE, 1, 2])
 def test_old_algorithm_version_refused(tmp_path: Path, old: object) -> None:
     wd = tmp_path / "run"
     markov_chain_eval(make_args(wd))

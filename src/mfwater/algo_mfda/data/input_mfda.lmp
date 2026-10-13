@@ -31,7 +31,9 @@ set type 2 charge VAR_q_O
 ############################################
 
 # remove energy hotspots
-minimize 1.0e-4 1.0e-6 100 1000
+# generous caps (10000 iterations / 100000 force evaluations): with 100 the
+# minimiser can stop before converging (N=16 needed 119); extra cost is seconds
+minimize 1.0e-4 1.0e-6 10000 100000
 reset_timestep 0
 
 # constrain water bonds and angles
@@ -66,8 +68,8 @@ dump_modify dEQUI element H O sort id
 restart 100000 restart.*
 
 # equilibration
-# 1 ns (timestep counter was reset to 0 above)
-run 1000000 upto
+# 250 ps (timestep counter was reset to 0 above)
+run 250000 upto
 # write data file
 write_data data.after_eq.lmp
 
@@ -75,10 +77,10 @@ write_data data.after_eq.lmp
 undump dEQUI
 
 # production
-# 2 ns (until absolute timestep 3 000 000)
+# 2 ns (until absolute timestep 2 250 000)
 dump dPROD all custom 1000 prod.lammpstrj id element xu yu zu
 dump_modify dPROD element H O sort id
-run 3000000 upto
+run 2250000 upto
 
 # write data file
 write_data data.after_prod.lmp

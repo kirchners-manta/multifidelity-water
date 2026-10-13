@@ -49,11 +49,12 @@ TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "algo_chemical_model" / 
 #: ``run ... upto``. The paper-I template itself is left untouched.
 MFDA_INPUT_TEMPLATE = Path(__file__).resolve().parent / "data" / "input_mfda.lmp"
 
-#: Absolute LAMMPS timestep at the end of the equilibration (1 ns, dt = 1 fs).
-EQ_END_STEP = 1_000_000
+#: Absolute LAMMPS timestep at the end of the equilibration (250 ps, dt = 1 fs).
+#: Must agree with the ``run ... upto`` lines of ``input_mfda.lmp`` (a test checks it).
+EQ_END_STEP = 250_000
 
 #: Absolute LAMMPS timestep at the end of the production run (2 ns more).
-PROD_END_STEP = 3_000_000
+PROD_END_STEP = 2_250_000
 
 #: Interval of the trajectory dumps (and the TRAVIS frame spacing) in steps.
 DUMP_EVERY = 1000
@@ -518,7 +519,7 @@ class MDForwardModel:
     ``algo_chemical_model/data/travis_input_msd.txt`` (fixed cell, 1000 fs
     between frames, 2000 frames, correlation depth 600, atom ``#2`` = molecular
     centre of mass, confirmed by the user). Run length is taken from the LAMMPS
-    template (1 ns equilibration + 2 ns production).
+    template (250 ps equilibration + 2 ns production).
 
     Parameters
     ----------
