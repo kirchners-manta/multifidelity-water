@@ -1,9 +1,15 @@
 # mfwater
 ---
 
-![Python versions](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12-blue.svg)
+[![CI](https://github.com/kirchners-manta/multifidelity-water/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/kirchners-manta/multifidelity-water/actions/workflows/ci.yaml)
+[![codecov](https://codecov.io/gh/kirchners-manta/multifidelity-water/branch/main/graph/badge.svg)](https://codecov.io/gh/kirchners-manta/multifidelity-water)
+[![Paper I](https://img.shields.io/badge/Paper%20I-J.%20Chem.%20Phys.%202026-informational.svg)](https://doi.org/10.1063/5.0308381)
+[![Paper II](https://img.shields.io/badge/Paper%20II-in%20preparation-lightgrey.svg)](#reference)
+![Python versions](https://img.shields.io/badge/python-3.12%20|%203.13%20|%203.14-blue.svg)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![code style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Checked with mypy](https://img.shields.io/badge/mypy-checked-2a6db2.svg)](https://mypy-lang.org/)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
 
 A program to perform multifidelity Monte Carlo (MFMC) molecular dynamics (MD) simulations of the diffusion coefficient of water.
 The MFMC scheme is based on the work of [Peherstorfer *et al.*](https://doi.org/10.1137/15M1046472)
@@ -418,4 +424,8 @@ For the sake of simplicity, the execution of these programs is not included in t
 
 ## Reference
 
-T. Frömbgen, A. Kuhn, J. Dölz, B. Kirchner, [A Multifidelity Monte Carlo Approach for Simulating the Diffusion Coefficient of Water. I. Forward Problem](https://doi.org/10.1063/5.0308381). *J. Chem. Phys.* **2026**, 164, 024504.
+This software accompanies two papers.
+The MFMC forward problem is described in paper I, the multifidelity inverse problem (MFDA) in paper II.
+
+1. T. Frömbgen, A. Kuhn, J. Dölz, B. Kirchner, [A Multifidelity Monte Carlo Approach for Simulating the Diffusion Coefficient of Water. I. Forward Problem](https://doi.org/10.1063/5.0308381). *J. Chem. Phys.* **2026**, 164, 024504.
+2. T. Frömbgen, A. Kuhn, J. Dölz, B. Kirchner, A Multifidelity Monte Carlo Approach for Simulating the Diffusion Coefficient of Water. II. Inverse Problem. *In preparation.*

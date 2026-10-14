@@ -8,17 +8,13 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tomllib
 from collections.abc import Sequence
 from numbers import Real
 from pathlib import Path
 from typing import Any
 
 from .. import __version__
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover
-    import tomli as tomllib
 
 
 def is_file(path: str | Path) -> str | Path:

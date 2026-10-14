@@ -11,18 +11,13 @@ from __future__ import annotations
 
 import argparse
 import shlex
-import sys
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .markov_chain import build_config
 from .run_manager import required_cpus
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover
-    import tomli as tomllib
 
 _DATA_DIR = Path(__file__).parent / "data"
 
