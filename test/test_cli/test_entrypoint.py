@@ -39,6 +39,12 @@ def test_entrypoint_parametrized(tmp_path: Path, algo: str, args: str) -> None:
     args : str
         Command line arguments for the algorithm
     """
+    # chemmodel-prep calls the real fftool and packmol (not mocked), e.g. absent in CI
+    if algo == "chemmodel-prep":
+        missing = [s for s in ("fftool", "packmol") if shutil.which(s) is None]
+        if missing:
+            pytest.skip(f"external programs not in PATH: {', '.join(missing)}")
+
     with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
 
         # define input and output file paths
