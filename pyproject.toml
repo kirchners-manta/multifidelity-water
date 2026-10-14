@@ -14,6 +14,8 @@
 
 
 [tool.mypy]
+  # check against the oldest supported version (setup.cfg: python_requires)
+  python_version = "3.12"
   check_untyped_defs = true
   disallow_any_generics = true
   disallow_incomplete_defs = true
