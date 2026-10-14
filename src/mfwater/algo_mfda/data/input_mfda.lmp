@@ -77,10 +77,10 @@ write_data data.after_eq.lmp
 undump dEQUI
 
 # production
-# 2 ns (until absolute timestep 2 250 000)
+# 1 ns (until absolute timestep 1 250 000)
 dump dPROD all custom 1000 prod.lammpstrj id element xu yu zu
 dump_modify dPROD element H O sort id
-run 2250000 upto
+run 1250000 upto
 
 # write data file
 write_data data.after_prod.lmp

@@ -53,11 +53,28 @@ MFDA_INPUT_TEMPLATE = Path(__file__).resolve().parent / "data" / "input_mfda.lmp
 #: Must agree with the ``run ... upto`` lines of ``input_mfda.lmp`` (a test checks it).
 EQ_END_STEP = 250_000
 
-#: Absolute LAMMPS timestep at the end of the production run (2 ns more).
-PROD_END_STEP = 2_250_000
+#: Absolute LAMMPS timestep at the end of the production run (1 ns more).
+PROD_END_STEP = 1_250_000
 
 #: Interval of the trajectory dumps (and the TRAVIS frame spacing) in steps.
 DUMP_EVERY = 1000
+
+#: Production frames TRAVIS reads (1 ns, one frame per ps). The trajectory holds
+#: one more frame (both end frames are dumped, 1001); like the paper-I setup
+#: (2000 of 2001 frames) TRAVIS reads one frame fewer than the file contains.
+PRODUCTION_FRAMES = (PROD_END_STEP - EQ_END_STEP) // DUMP_EVERY
+
+#: Correlation depth of the MSD as fraction of the analysed frames. Fixed
+#: convention (30 %): the long-lag end of an MSD is averaged over few windows
+#: and noisy, so only the first 30 % of the trajectory length is used.
+MSD_DEPTH_FRACTION = 0.30
+
+#: MSD correlation depth in frames (300 for 1000 frames).
+MSD_CORRELATION_DEPTH = round(MSD_DEPTH_FRACTION * PRODUCTION_FRAMES)
+
+#: Prompts of the TRAVIS template whose answer (next line) is set by MFDA.
+TRAVIS_FRAMES_PROMPT = "How many trajectory frames to read"
+TRAVIS_DEPTH_PROMPT = "Enter the correlation depth"
 
 #: Interval of the LAMMPS restart files in steps (100 ps).
 RESTART_EVERY = 100_000
@@ -408,6 +425,74 @@ def iter_frames(path: Path) -> Iterator[tuple[int, list[str]]]:
             yield step, head + body
 
 
+def _set_answers(lines: list[str], prompt: str, answer: str) -> int:
+    """Replace the answer line below every prompt containing ``prompt``.
+
+    Parameters
+    ----------
+    lines : list[str]
+        Template lines (modified in place).
+    prompt : str
+        Text identifying the TRAVIS prompt line (starting with ``!``).
+    answer : str
+        New answer.
+
+    Returns
+    -------
+    int
+        Number of replaced answers.
+    """
+    n = 0
+    for i, line in enumerate(lines):
+        if line.startswith("!") and prompt in line:
+            if i + 1 >= len(lines):
+                raise ValueError(f"TRAVIS template ends right after prompt {prompt!r}.")
+            lines[i + 1] = answer
+            n += 1
+    return n
+
+
+def patch_travis_input(
+    template: str,
+    frames: int = PRODUCTION_FRAMES,
+    depth: int = MSD_CORRELATION_DEPTH,
+) -> str:
+    """Set the number of frames and the correlation depth of a TRAVIS input.
+
+    The shared paper-I templates hard-code 2000 frames and depth 600 (or read
+    all frames); MFDA uses a shorter production run, so the answers are
+    replaced in a copy. Every depth prompt is patched (the OrthoBoXY template
+    has one per MSD observation). The start-frame answer is not touched.
+
+    Parameters
+    ----------
+    template : str
+        Content of the TRAVIS input template.
+    frames : int, optional
+        Trajectory frames to read.
+    depth : int, optional
+        MSD correlation depth in frames.
+
+    Returns
+    -------
+    str
+        Patched input.
+
+    Raises
+    ------
+    ValueError
+        If the template lacks the frames prompt or any depth prompt.
+    """
+    lines = template.split("\n")
+    if _set_answers(lines, TRAVIS_FRAMES_PROMPT, str(frames)) != 1:
+        raise ValueError(
+            f"TRAVIS template needs exactly one {TRAVIS_FRAMES_PROMPT!r} prompt."
+        )
+    if _set_answers(lines, TRAVIS_DEPTH_PROMPT, str(depth)) < 1:
+        raise ValueError(f"TRAVIS template lacks a {TRAVIS_DEPTH_PROMPT!r} prompt.")
+    return "\n".join(lines)
+
+
 def merge_trajectories(
     segments: Sequence[tuple[Path, int | None]],
     target: Path,
@@ -517,9 +602,12 @@ class MDForwardModel:
     ``PATH`` (on Marvin: ``module load LAMMPS/23Jun2022-foss-2022a-kokkos``).
     The TRAVIS input is the user's template
     ``algo_chemical_model/data/travis_input_msd.txt`` (fixed cell, 1000 fs
-    between frames, 2000 frames, correlation depth 600, atom ``#2`` = molecular
-    centre of mass, confirmed by the user). Run length is taken from the LAMMPS
-    template (250 ps equilibration + 2 ns production).
+    between frames, atom ``#2`` = molecular centre of mass, confirmed by the
+    user). MFDA writes a patched copy into ``msd/`` that reads
+    :data:`PRODUCTION_FRAMES` (1000) frames with correlation depth
+    :data:`MSD_CORRELATION_DEPTH` (300 = 30 %); the shared template is not
+    modified. Run length is taken from the LAMMPS template (250 ps
+    equilibration + 1 ns production).
 
     Parameters
     ----------
@@ -889,7 +977,9 @@ class MDForwardModel:
         RuntimeError
             If TRAVIS does not write the expected MSD file(s) or msdiff fails.
         """
-        shutil.copy(self.travis_template, msd / "travis_input_msd.txt")
+        (msd / "travis_input_msd.txt").write_text(
+            patch_travis_input(self.travis_template.read_text())
+        )
         # TRAVIS is serial: call it directly, never through mpirun.
         _run(
             [

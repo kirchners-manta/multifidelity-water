@@ -401,27 +401,67 @@ def test_orthoboxy_box_and_msdiff_call(
     assert "-l" not in msdiff
 
 
-def test_orthoboxy_travis_template_is_verbatim_copy(
+def _diff_lines(used: str, template: Path) -> dict[int, tuple[str, str]]:
+    """Line number -> (template line, used line) for all differing lines."""
+    old, new = template.read_text().split("\n"), used.split("\n")
+    assert len(old) == len(new)
+    return {i: (o, n) for i, (o, n) in enumerate(zip(old, new)) if o != n}
+
+
+def test_orthoboxy_travis_input_is_patched_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     model, _ = _orthoboxy_run(tmp_path, monkeypatch, travis_files=ORTHO_FILES)
     model(100, THETA)
     assert model.last_attempt_dir is not None
-    used = (model.last_attempt_dir / "msd" / "travis_input_msd.txt").read_bytes()
+    used = (model.last_attempt_dir / "msd" / "travis_input_msd.txt").read_text()
     template = md_pipeline.TEMPLATE_DIR / "travis_input_msd_orthoboxy.txt"
-    assert used == template.read_bytes()
-    # two MSD observations (x-y and z) and the blank lines are preserved
-    assert b"Add another observation (y/n)? [no] \ny\n" in used
-    assert b"\n\n" in used
-    assert used != (md_pipeline.TEMPLATE_DIR / "travis_input_msd.txt").read_bytes()
+    diff = _diff_lines(used, template)
+    # only the two depth answers and the frame count change: 1000 frames, 30 %
+    assert sorted(n for _, n in diff.values()) == ["1000", "300", "300"]
+    lines = used.split("\n")
+    for i in diff:
+        assert lines[i - 1].startswith("!")
+    assert md_pipeline.PRODUCTION_FRAMES == 1000
+    assert md_pipeline.MSD_CORRELATION_DEPTH == 300
+    # start frame answer untouched (blank = default 1); two MSD observations kept
+    k = next(i for i, ln in enumerate(lines) if "frame to start" in ln)
+    assert lines[k + 1] == ""
+    assert "Add another observation (y/n)? [no] \ny\n" in used
+    assert used != (md_pipeline.TEMPLATE_DIR / "travis_input_msd.txt").read_text()
 
 
-def test_cubic_uses_cubic_template(tmp_path: Path, fake_md: list[Any]) -> None:
+def test_cubic_travis_input_is_patched_copy(tmp_path: Path, fake_md: list[Any]) -> None:
     model = MDForwardModel(tmp_path)
     model(100, THETA)
     assert model.last_attempt_dir is not None
-    used = (model.last_attempt_dir / "msd" / "travis_input_msd.txt").read_bytes()
-    assert used == (md_pipeline.TEMPLATE_DIR / "travis_input_msd.txt").read_bytes()
+    used = (model.last_attempt_dir / "msd" / "travis_input_msd.txt").read_text()
+    template = md_pipeline.TEMPLATE_DIR / "travis_input_msd.txt"
+    diff = _diff_lines(used, template)
+    assert sorted(n for _, n in diff.values()) == ["1000", "300"]
+    assert {o for o, _ in diff.values()} == {"600", "2000"}
+    lines = used.split("\n")
+    k = next(i for i, ln in enumerate(lines) if "frame to start" in ln)
+    assert lines[k + 1] == ""  # default: start at the first frame
+
+
+def test_patch_travis_input_missing_prompt() -> None:
+    template = (md_pipeline.TEMPLATE_DIR / "travis_input_msd.txt").read_text()
+    with pytest.raises(ValueError, match="frames to read"):
+        md_pipeline.patch_travis_input(template.replace("How many trajectory", "X"))
+    with pytest.raises(ValueError, match="correlation depth"):
+        md_pipeline.patch_travis_input(template.replace("correlation depth", "X"))
+
+
+def test_shared_travis_templates_unchanged(tmp_path: Path, fake_md: list[Any]) -> None:
+    paths = [
+        md_pipeline.TEMPLATE_DIR / "travis_input_msd.txt",
+        md_pipeline.TEMPLATE_DIR / "travis_input_msd_orthoboxy.txt",
+    ]
+    before = [p.read_bytes() for p in paths]
+    MDForwardModel(tmp_path)(100, THETA)
+    assert [p.read_bytes() for p in paths] == before
+    assert b"\n2000\n" in before[0] and b"\n600" in before[1]
 
 
 @pytest.mark.parametrize("missing", ["msd_H2O_#2_XY.csv", "msd_H2O_#2_Z.csv"])
@@ -525,7 +565,7 @@ def test_template_matches_protocol() -> None:
     text = md_pipeline.MFDA_INPUT_TEMPLATE.read_text()
     assert "restart 100000 restart.*" in text
     assert f"run {EQ} upto" in text and f"run {PROD_END} upto" in text
-    assert (EQ, PROD_END) == (250_000, 2_250_000)
+    assert (EQ, PROD_END) == (250_000, 1_250_000)
     assert "minimize 1.0e-4 1.0e-6 10000 100000" in text
     assert "write_data data.after_eq.lmp" in text
     assert "write_data data.after_prod.lmp" in text
@@ -573,7 +613,7 @@ def test_resume_input_production_stage(tmp_path: Path) -> None:
     assert f"run {PROD_END} upto" in text
     assert "data.after_eq" not in text
     with pytest.raises(ValueError):
-        md_pipeline.write_resume_input(out, tmp_path / "restart.2250000", PROD_END)
+        md_pipeline.write_resume_input(out, tmp_path / f"restart.{PROD_END}", PROD_END)
 
 
 def test_fresh_start_without_restart_files(tmp_path: Path, fake_md: list[Any]) -> None:
@@ -650,7 +690,7 @@ def test_restart_chain_of_three_attempts(
 
     combined = a3 / "msd" / md_pipeline.COMBINED_TRAJECTORY
     tags = tags_by_step(combined)
-    assert list(tags) == list(range(EQ, PROD_END + 1, 1000))  # 2001, no duplicates
+    assert list(tags) == list(range(EQ, PROD_END + 1, 1000))  # 1001, no duplicates
     assert tags[EQ] == "attempt_1" and tags[399_000] == "attempt_1"
     assert tags[400_000] == "attempt_2" and tags[599_000] == "attempt_2"
     assert tags[600_000] == "attempt_3" and tags[PROD_END] == "attempt_3"
@@ -845,5 +885,5 @@ def test_resume_stage_follows_eq_end_step(tmp_path: Path) -> None:
 
 
 def test_production_frame_count_unchanged() -> None:
-    """2 ns of production with one frame per ps: 2001 frames incl. both ends."""
-    assert (PROD_END - EQ) // md_pipeline.DUMP_EVERY + 1 == 2001
+    """1 ns of production with one frame per ps: 1001 frames incl. both ends."""
+    assert (PROD_END - EQ) // md_pipeline.DUMP_EVERY + 1 == 1001
