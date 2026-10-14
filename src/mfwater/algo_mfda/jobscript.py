@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import shlex
-import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
