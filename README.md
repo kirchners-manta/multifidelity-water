@@ -1,6 +1,7 @@
 # mfwater
 ---
 
+[![CI](https://github.com/kirchners-manta/multifidelity-water/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/kirchners-manta/multifidelity-water/actions/workflows/ci.yaml)
 ![Python versions](https://img.shields.io/badge/python-3.12%20|%203.13%20|%203.14-blue.svg)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![code style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
