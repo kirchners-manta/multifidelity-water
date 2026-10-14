@@ -1,4 +1,4 @@
-# Continuous integration: lint (pre-commit) and tests (pytest + coverage).
+# Continuous integration: lint (pre-commit) and tests (pytest + coverage, uploaded to Codecov).
 # External programs (LAMMPS, fftool, packmol, TRAVIS, msdiff) are mocked in the tests,
 # so a plain pip install of the package is enough.
 name: CI
@@ -29,6 +29,9 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC upload to Codecov, no CODECOV_TOKEN secret needed
     strategy:
       fail-fast: false # report all versions, not just the first failure
       matrix:
@@ -49,3 +52,13 @@ jobs:
         run: |
           coverage run -m pytest
           coverage report -m
+          coverage xml -o coverage.xml
+      - name: Upload coverage to Codecov
+        # one upload is enough: the code paths do not depend on the Python version
+        if: matrix.python-version == '3.14'
+        uses: codecov/codecov-action@v7
+        with:
+          files: coverage.xml
+          use_oidc: true
+          # a Codecov outage must not block merges (the test jobs are required checks)
+          fail_ci_if_error: false
