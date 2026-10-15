@@ -84,6 +84,7 @@ def test_generated_script(in_tmp: Path) -> None:
         "#SBATCH --mem-per-cpu=2G",
         "module load fake",
         "export FOO=${BAR}",
+        "export PYTHONUNBUFFERED=1",
         f"-a markov-chain -c {run.resolve()}",
         "--lammps-cmd 'srun -n {ncpu} lmp -i {input}'",
     ):

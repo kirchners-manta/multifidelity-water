@@ -15,6 +15,9 @@
 @SBATCH_HEADER@
 
 export OMP_NUM_THREADS=1
+# Without a terminal Python buffers stdout, so the progress output (--print-level)
+# would only reach the slurm log at the end of the job.
+export PYTHONUNBUFFERED=1
 
 @ENVIRONMENT_SETUP@
 
