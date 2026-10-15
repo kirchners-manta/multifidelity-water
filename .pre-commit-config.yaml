@@ -4,9 +4,9 @@ repos:
     hooks:
       # TRAVIS input files: blank lines are answers (accept default), keep them verbatim
       - id: trailing-whitespace
-        exclude: ^src/mfwater/algo_chemical_model/data/travis_input.*\.txt$
+        exclude: ^(src/mfwater/algo_chemical_model/data/travis_input.*\.txt|test/test_md/data/mfda_reference/.*)$
       - id: end-of-file-fixer
-        exclude: ^src/mfwater/algo_chemical_model/data/travis_input.*\.txt$
+        exclude: ^(src/mfwater/algo_chemical_model/data/travis_input.*\.txt|test/test_md/data/mfda_reference/.*)$
       - id: check-shebang-scripts-are-executable
       - id: check-toml
       - id: check-yaml

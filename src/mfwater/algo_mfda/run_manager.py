@@ -31,10 +31,11 @@ import h5py
 import numpy as np
 
 from ..__version__ import __version__
-from ..algo_chemical_model.chemical_model import calc_cpus
 from ..argparser import constants
-from .cache import CachedForwardModel
-from .forward_model import DummyForwardModel, ForwardModel
+from ..md.cache import CachedForwardModel
+from ..md.forward_model import DummyForwardModel, ForwardModel
+from ..md.pipeline import MDForwardModel
+from ..md.system import calc_cpus
 from .markov_chain import (
     as_int_list,
     build_config,
@@ -43,7 +44,6 @@ from .markov_chain import (
     run_chain,
     write_results,
 )
-from .md_pipeline import MDForwardModel
 from .multifidelity_mcmc import MFDAConfig
 
 MANIFEST_NAME = "manifest.json"
