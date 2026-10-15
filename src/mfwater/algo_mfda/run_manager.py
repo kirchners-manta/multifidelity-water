@@ -51,8 +51,9 @@ MANIFEST_NAME = "manifest.json"
 #: Version of the algorithm as far as results are concerned. Bump it whenever a
 #: change alters the results of a replay with identical settings (a restart
 #: would then silently mix old cached evaluations with new chain logic).
-#: 1 = initial scheme, 2 = burn-in added to the chain length.
-ALGORITHM_VERSION = 2
+#: 1 = initial scheme, 2 = burn-in added to the chain length,
+#: 3 = MD protocol (250 ps equilibration + 1 ns production, longer minimiser cap).
+ALGORITHM_VERSION = 3
 
 #: Manifest entries that must be identical for a restart (error otherwise).
 _STRICT_KEYS = (

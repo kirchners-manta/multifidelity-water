@@ -401,27 +401,67 @@ def test_orthoboxy_box_and_msdiff_call(
     assert "-l" not in msdiff
 
 
-def test_orthoboxy_travis_template_is_verbatim_copy(
+def _diff_lines(used: str, template: Path) -> dict[int, tuple[str, str]]:
+    """Line number -> (template line, used line) for all differing lines."""
+    old, new = template.read_text().split("\n"), used.split("\n")
+    assert len(old) == len(new)
+    return {i: (o, n) for i, (o, n) in enumerate(zip(old, new)) if o != n}
+
+
+def test_orthoboxy_travis_input_is_patched_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     model, _ = _orthoboxy_run(tmp_path, monkeypatch, travis_files=ORTHO_FILES)
     model(100, THETA)
     assert model.last_attempt_dir is not None
-    used = (model.last_attempt_dir / "msd" / "travis_input_msd.txt").read_bytes()
+    used = (model.last_attempt_dir / "msd" / "travis_input_msd.txt").read_text()
     template = md_pipeline.TEMPLATE_DIR / "travis_input_msd_orthoboxy.txt"
-    assert used == template.read_bytes()
-    # two MSD observations (x-y and z) and the blank lines are preserved
-    assert b"Add another observation (y/n)? [no] \ny\n" in used
-    assert b"\n\n" in used
-    assert used != (md_pipeline.TEMPLATE_DIR / "travis_input_msd.txt").read_bytes()
+    diff = _diff_lines(used, template)
+    # only the two depth answers and the frame count change: 1000 frames, 30 %
+    assert sorted(n for _, n in diff.values()) == ["1000", "300", "300"]
+    lines = used.split("\n")
+    for i in diff:
+        assert lines[i - 1].startswith("!")
+    assert md_pipeline.PRODUCTION_FRAMES == 1000
+    assert md_pipeline.MSD_CORRELATION_DEPTH == 300
+    # start frame answer untouched (blank = default 1); two MSD observations kept
+    k = next(i for i, ln in enumerate(lines) if "frame to start" in ln)
+    assert lines[k + 1] == ""
+    assert "Add another observation (y/n)? [no] \ny\n" in used
+    assert used != (md_pipeline.TEMPLATE_DIR / "travis_input_msd.txt").read_text()
 
 
-def test_cubic_uses_cubic_template(tmp_path: Path, fake_md: list[Any]) -> None:
+def test_cubic_travis_input_is_patched_copy(tmp_path: Path, fake_md: list[Any]) -> None:
     model = MDForwardModel(tmp_path)
     model(100, THETA)
     assert model.last_attempt_dir is not None
-    used = (model.last_attempt_dir / "msd" / "travis_input_msd.txt").read_bytes()
-    assert used == (md_pipeline.TEMPLATE_DIR / "travis_input_msd.txt").read_bytes()
+    used = (model.last_attempt_dir / "msd" / "travis_input_msd.txt").read_text()
+    template = md_pipeline.TEMPLATE_DIR / "travis_input_msd.txt"
+    diff = _diff_lines(used, template)
+    assert sorted(n for _, n in diff.values()) == ["1000", "300"]
+    assert {o for o, _ in diff.values()} == {"600", "2000"}
+    lines = used.split("\n")
+    k = next(i for i, ln in enumerate(lines) if "frame to start" in ln)
+    assert lines[k + 1] == ""  # default: start at the first frame
+
+
+def test_patch_travis_input_missing_prompt() -> None:
+    template = (md_pipeline.TEMPLATE_DIR / "travis_input_msd.txt").read_text()
+    with pytest.raises(ValueError, match="frames to read"):
+        md_pipeline.patch_travis_input(template.replace("How many trajectory", "X"))
+    with pytest.raises(ValueError, match="correlation depth"):
+        md_pipeline.patch_travis_input(template.replace("correlation depth", "X"))
+
+
+def test_shared_travis_templates_unchanged(tmp_path: Path, fake_md: list[Any]) -> None:
+    paths = [
+        md_pipeline.TEMPLATE_DIR / "travis_input_msd.txt",
+        md_pipeline.TEMPLATE_DIR / "travis_input_msd_orthoboxy.txt",
+    ]
+    before = [p.read_bytes() for p in paths]
+    MDForwardModel(tmp_path)(100, THETA)
+    assert [p.read_bytes() for p in paths] == before
+    assert b"\n2000\n" in before[0] and b"\n600" in before[1]
 
 
 @pytest.mark.parametrize("missing", ["msd_H2O_#2_XY.csv", "msd_H2O_#2_Z.csv"])
@@ -524,7 +564,9 @@ def snapshot(attempt: Path) -> dict[str, str]:
 def test_template_matches_protocol() -> None:
     text = md_pipeline.MFDA_INPUT_TEMPLATE.read_text()
     assert "restart 100000 restart.*" in text
-    assert "run 1000000 upto" in text and "run 3000000 upto" in text
+    assert f"run {EQ} upto" in text and f"run {PROD_END} upto" in text
+    assert (EQ, PROD_END) == (250_000, 1_250_000)
+    assert "minimize 1.0e-4 1.0e-6 10000 100000" in text
     assert "write_data data.after_eq.lmp" in text
     assert "write_data data.after_prod.lmp" in text
     # paper-I protocol otherwise unchanged: every other command line is identical
@@ -535,21 +577,23 @@ def test_template_matches_protocol() -> None:
     ]
     extra = [c for c in cmds(new) if c not in cmds(paper)]
     assert extra == [
+        "minimize 1.0e-4 1.0e-6 10000 100000",  # paper I: 100 1000
         "restart 100000 restart.*",
-        "run 1000000 upto",
-        "run 3000000 upto",
+        f"run {EQ} upto",
+        f"run {PROD_END} upto",
     ]
 
 
 def test_resume_input_equilibration_stage(tmp_path: Path) -> None:
     out = tmp_path / "input_resume.lmp"
-    md_pipeline.write_resume_input(out, tmp_path / "restart.300000", 300000)
+    md_pipeline.write_resume_input(out, tmp_path / "restart.100000", 100000)
     text = out.read_text()
-    assert f'read_restart "{(tmp_path / "restart.300000").resolve()}"' in text
+    assert f'read_restart "{(tmp_path / "restart.100000").resolve()}"' in text
     assert "fix fTHERMO all nvt temp ${vTK} ${vTK} 100" in text  # same ID and style
-    assert "run 1000000 upto" in text and "run 3000000 upto" in text
+    assert f"run {EQ} upto" in text and f"run {PROD_END} upto" in text
     assert "dump dEQUI" in text and "dump dPROD" in text
-    assert text.index("run 1000000 upto") < text.index("run 3000000 upto")
+    assert text.index(f"run {EQ} upto") < text.index(f"run {PROD_END} upto")
+    assert "write_data data.after_eq.lmp" in text
     for forbidden in ("minimize", "velocity all create", "reset_timestep", "read_data"):
         assert not [
             ln for ln in text.splitlines() if ln.startswith(forbidden)
@@ -563,13 +607,13 @@ def test_resume_input_equilibration_stage(tmp_path: Path) -> None:
 
 def test_resume_input_production_stage(tmp_path: Path) -> None:
     out = tmp_path / "input_resume.lmp"
-    md_pipeline.write_resume_input(out, tmp_path / "restart.1500000", 1_500_000)
+    md_pipeline.write_resume_input(out, tmp_path / "restart.300000", 300_000)
     text = out.read_text()
-    assert "dump dEQUI" not in text and "run 1000000 upto" not in text
-    assert "run 3000000 upto" in text
+    assert "dump dEQUI" not in text and f"run {EQ} upto" not in text
+    assert f"run {PROD_END} upto" in text
     assert "data.after_eq" not in text
     with pytest.raises(ValueError):
-        md_pipeline.write_resume_input(out, tmp_path / "restart.3000000", PROD_END)
+        md_pipeline.write_resume_input(out, tmp_path / f"restart.{PROD_END}", PROD_END)
 
 
 def test_fresh_start_without_restart_files(tmp_path: Path, fake_md: list[Any]) -> None:
@@ -585,7 +629,7 @@ def test_fresh_start_without_restart_files(tmp_path: Path, fake_md: list[Any]) -
     assert travis[0][-1] == "../simout/prod.lammpstrj"
     # the template with restart output is what LAMMPS gets
     text = (attempt / "siminp" / "input.lmp").read_text()
-    assert "restart 100000 restart.*" in text and "run 3000000 upto" in text
+    assert "restart 100000 restart.*" in text and f"run {PROD_END} upto" in text
 
 
 def test_restart_chain_of_three_attempts(
@@ -603,8 +647,9 @@ def test_restart_chain_of_three_attempts(
             make_fake_run(calls, lammps_hook=hook),
         )
 
-    # attempt 1: killed in production, last restart at 1.2e6, frames beyond it
-    run(interrupted_lammps(range(EQ, 1_250_001, 1000), (EQ, 1_100_000, 1_200_000)))
+    # attempt 1: killed in production, last restart at 4e5, frames beyond it
+    # (restarts at 2e5 < EQ and 3e5 > EQ, as with the real 100 ps interval)
+    run(interrupted_lammps(range(EQ, 450_001, 1000), (200_000, 300_000, 400_000)))
     with pytest.raises(RuntimeError, match="mpirun"):
         model(100, THETA)
     a1 = model.last_attempt_dir
@@ -613,9 +658,7 @@ def test_restart_chain_of_three_attempts(
 
     # attempt 2: resumes from attempt 1, killed again after more restarts
     run(
-        interrupted_lammps(
-            range(1_200_000, 1_450_001, 1000), (1_300_000, 1_400_000), seen=seen
-        )
+        interrupted_lammps(range(400_000, 650_001, 1000), (500_000, 600_000), seen=seen)
     )
     with pytest.raises(RuntimeError, match="mpirun"):
         model(100, THETA)
@@ -624,21 +667,21 @@ def test_restart_chain_of_three_attempts(
     snap2 = snapshot(a2)
     assert (
         a2 / "resume_from.txt"
-    ).read_text().strip() == "attempt_1/simout/restart.1200000"
-    assert "restart.1200000" in seen[0] and "read_restart" in seen[0]
+    ).read_text().strip() == "attempt_1/simout/restart.400000"
+    assert "restart.400000" in seen[0] and "read_restart" in seen[0]
     assert snapshot(a1) == snap1  # previous attempt untouched
     assert not any(c[0][0] == "fftool" for c in calls[len(calls) - 2 :])
 
     # attempt 3: resumes from attempt 2 (not from the older file of attempt 1), finishes
     n_fftool = sum(c[0][0] == "fftool" for c in calls)
-    run(interrupted_lammps(range(1_400_000, PROD_END + 1, 1000), (), finish=True))
+    run(interrupted_lammps(range(600_000, PROD_END + 1, 1000), (), finish=True))
     d = model(100, THETA)
     assert d == pytest.approx(2.5)
     a3 = model.last_attempt_dir
     assert a3 is not None and a3.name == "attempt_3"
     assert (
         a3 / "resume_from.txt"
-    ).read_text().strip() == "attempt_2/simout/restart.1400000"
+    ).read_text().strip() == "attempt_2/simout/restart.600000"
     assert sum(c[0][0] == "fftool" for c in calls) == n_fftool  # no box rebuild
     assert (a3 / "siminp" / "input_resume.lmp").exists()
     assert not (a3 / "siminp" / "data.lmp").exists()
@@ -647,10 +690,10 @@ def test_restart_chain_of_three_attempts(
 
     combined = a3 / "msd" / md_pipeline.COMBINED_TRAJECTORY
     tags = tags_by_step(combined)
-    assert list(tags) == list(range(EQ, PROD_END + 1, 1000))  # 2001, no duplicates
-    assert tags[1_100_000] == "attempt_1" and tags[1_199_000] == "attempt_1"
-    assert tags[1_200_000] == "attempt_2" and tags[1_399_000] == "attempt_2"
-    assert tags[1_400_000] == "attempt_3" and tags[PROD_END] == "attempt_3"
+    assert list(tags) == list(range(EQ, PROD_END + 1, 1000))  # 1001, no duplicates
+    assert tags[EQ] == "attempt_1" and tags[399_000] == "attempt_1"
+    assert tags[400_000] == "attempt_2" and tags[599_000] == "attempt_2"
+    assert tags[600_000] == "attempt_3" and tags[PROD_END] == "attempt_3"
     travis = [c for c in calls if c[0][0] == "travis"][-1]
     assert travis[0][-1] == md_pipeline.COMBINED_TRAJECTORY
 
@@ -682,7 +725,7 @@ def test_restart_from_equilibration_and_result_json(
         ),
     )
     cached(100, THETA)
-    assert "dump dEQUI" in seen[0] and "run 1000000 upto" in seen[0]
+    assert "dump dEQUI" in seen[0] and f"run {EQ} upto" in seen[0]
     data = json.loads((cached.entry_dir(100, THETA) / "result.json").read_text())
     assert [Path(p).name for p in data["attempt_dirs"]] == ["attempt_1", "attempt_2"]
     assert data["attempt_dir"].endswith("attempt_2")
@@ -826,3 +869,21 @@ def test_select_restart_file_unit(tmp_path: Path) -> None:
     assert md_pipeline.select_restart_file([(1, f)], [5]) == ((1, f), [])
     assert md_pipeline.select_restart_file([(1, f)], [4]) == (None, [f])
     assert md_pipeline.select_restart_file([], []) == (None, [])
+
+
+def test_resume_stage_follows_eq_end_step(tmp_path: Path) -> None:
+    """Restart files never hit EQ_END_STEP (100 ps interval); both sides must work."""
+    for step, equilibrates in [(200_000, True), (EQ, False), (300_000, False)]:
+        out = tmp_path / f"input_{step}.lmp"
+        md_pipeline.write_resume_input(out, tmp_path / f"restart.{step}", step)
+        text = out.read_text()
+        assert ("dump dEQUI" in text) == equilibrates
+        assert (f"run {EQ} upto" in text) == equilibrates
+        assert ("write_data data.after_eq.lmp" in text) == (step <= EQ)
+        # production is always (re)started with a fresh dump at the restart step
+        assert text.count("\ndump dPROD") == 1 and f"run {PROD_END} upto" in text
+
+
+def test_production_frame_count_unchanged() -> None:
+    """1 ns of production with one frame per ps: 1001 frames incl. both ends."""
+    assert (PROD_END - EQ) // md_pipeline.DUMP_EVERY + 1 == 1001
