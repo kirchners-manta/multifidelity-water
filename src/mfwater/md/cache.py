@@ -299,6 +299,7 @@ class CachedForwardModel:
             # attempts of a resumed evaluation); None for models without a log
             "cpu_time_s": None,
             "n_mpi": None,
+            "n_mpi_requested": None,
             "attempt_dir": None if attempt is None else str(attempt),
             "attempt_dirs": None if attempts is None else [str(a) for a in attempts],
         }

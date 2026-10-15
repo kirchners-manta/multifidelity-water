@@ -28,7 +28,7 @@ import re
 import shlex
 import shutil
 import subprocess
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -634,6 +634,15 @@ class MDForwardModel:
         cost is a by-product and must not kill a long MFDA evaluation. MFMC
         needs the cost, so its callers set this to True.
 
+    ncpu : Callable[[int], int] | Mapping[int, int] | None, optional
+        Number of MPI ranks per evaluation as a function (or table) of the
+        number of molecules. Default None: :func:`~mfwater.md.system.calc_cpus`.
+        A mapping must list the molecule numbers it overrides; others fall back
+        to ``calc_cpus``. Paper I used 6 ranks for N = 1024 where ``calc_cpus``
+        gives 8, e.g. ``ncpu={1024: 6}``. The number of ranks is *not* part of
+        the cache key (it changes the cost, not the physics); the ranks used
+        and the ranks read from the log are recorded in ``result.json``.
+
     Raises
     ------
     ValueError
@@ -663,6 +672,7 @@ class MDForwardModel:
         msdiff_args: Sequence[str] | None = None,
         protocol: str | MDProtocol = "mfda",
         require_cost: bool = False,
+        ncpu: Callable[[int], int] | Mapping[int, int] | None = None,
     ) -> None:
         self.work_dir_root = Path(work_dir_root)
         self.protocol = get_protocol(protocol)
@@ -684,7 +694,40 @@ class MDForwardModel:
         self.last_attempt_dir: Path | None = None
         self.last_attempt_dirs: list[Path] = []
         self.require_cost = require_cost
+        self.ncpu = ncpu
+        self._last_ncpu: int | None = None
         self.last_cost: dict[str, Any] | None = None
+
+    def n_mpi(self, n_molecules: int) -> int:
+        """Return the number of MPI ranks used for ``n_molecules``.
+
+        Parameters
+        ----------
+        n_molecules : int
+            Number of molecules.
+
+        Returns
+        -------
+        int
+            Ranks from the ``ncpu`` override, else from ``calc_cpus``.
+
+        Raises
+        ------
+        ValueError
+            If the override returns something other than an integer >= 1.
+        """
+        if self.ncpu is None:
+            ranks = calc_cpus(n_molecules)
+        elif isinstance(self.ncpu, Mapping):
+            ranks = self.ncpu.get(n_molecules, calc_cpus(n_molecules))
+        else:
+            ranks = self.ncpu(n_molecules)
+        if int(ranks) != ranks or int(ranks) < 1:
+            raise ValueError(
+                f"Number of MPI ranks for N={n_molecules} must be an integer >= 1, "
+                f"got {ranks!r}."
+            )
+        return int(ranks)
 
     def _required_programs(self) -> list[str]:
         """Return the executables needed for one evaluation."""
@@ -961,7 +1004,8 @@ class MDForwardModel:
             ``cpu_time_s`` (core-seconds, None if the last log is unreadable),
             ``n_mpi`` (ranks of the last attempt), ``cost_attempts`` (per
             attempt wall time, ranks and core-seconds or the error),
-            ``cost_complete`` and, on failure, ``cost_error``.
+            ``cost_complete`` and, on failure, ``cost_error``; plus
+            ``n_mpi_requested``, the ranks passed to the LAMMPS command.
 
         Raises
         ------
@@ -984,6 +1028,7 @@ class MDForwardModel:
                     return {
                         "cpu_time_s": None,
                         "n_mpi": None,
+                        "n_mpi_requested": self._last_ncpu,
                         "cost_attempts": entries,
                         "cost_complete": False,
                         "cost_error": str(exc),
@@ -1003,6 +1048,7 @@ class MDForwardModel:
         return {
             "cpu_time_s": total,
             "n_mpi": last_ranks,
+            "n_mpi_requested": self._last_ncpu,
             "cost_attempts": entries,
             "cost_complete": complete,
         }
@@ -1067,7 +1113,10 @@ class MDForwardModel:
         RuntimeError
             If LAMMPS fails or does not write ``prod.lammpstrj``.
         """
-        cmd = self.lammps_cmd.format(ncpu=calc_cpus(n), input=f"../siminp/{input_name}")
+        self._last_ncpu = self.n_mpi(n)
+        cmd = self.lammps_cmd.format(
+            ncpu=self._last_ncpu, input=f"../siminp/{input_name}"
+        )
         _run(shlex.split(cmd), simout, "lammps_stdout")
         if not (simout / "prod.lammpstrj").exists():
             raise RuntimeError(f"LAMMPS did not write {simout / 'prod.lammpstrj'}.")

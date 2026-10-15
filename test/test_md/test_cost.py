@@ -205,6 +205,7 @@ def test_cost_sums_complete_logs_of_all_attempts(
     assert model._record_cost(entries) == {
         "cpu_time_s": 40.0,
         "n_mpi": 2,
+        "n_mpi_requested": 2,  # calc_cpus(100)
         "cost_attempts": [
             {"attempt": a.name, "wall_time_s": 10.0, "n_mpi": 2, "cpu_time_s": 20.0}
             for a in entries
