@@ -129,6 +129,11 @@ def test_full_legacy_chain_reproduces_paper1(tmp_path: Path, perf: Path) -> None
         assert float(attrs["gamma"]) == pytest.approx(
             core.gamma(rho, w_perf), rel=1e-12
         )
+        # gamma is stored for both bases; `gamma` is the chosen one
+        assert float(attrs["gamma_performance_cost"]) == float(attrs["gamma"])
+        assert float(attrs["gamma_calibration_cost"]) == pytest.approx(
+            core.gamma(rho, w_cal), rel=1e-12
+        )
         sigma1 = float(mods[0].attrs["std_initial"])
         assert float(attrs["mfmc_error_calibration_cost"]) == pytest.approx(
             core.mfmc_rmse(sigma1, rho, w_cal, budget), rel=1e-12
@@ -155,6 +160,8 @@ def test_mfmc_on_stored_performance_file(tmp_path: Path, perf: Path) -> None:
         assert 0.0 < float(attrs["gamma"]) < 1.0
         # old files carry no calibration costs: only the performance basis is stored
         assert "mfmc_error_calibration_cost" not in attrs
+        assert "gamma_calibration_cost" not in attrs
+        assert float(attrs["gamma_performance_cost"]) == float(attrs["gamma"])
 
 
 def test_rmse_cost_calibration_needs_stored_costs(tmp_path: Path) -> None:
