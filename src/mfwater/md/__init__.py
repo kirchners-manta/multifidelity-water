@@ -15,6 +15,7 @@ from .forward_model import (
 )
 from .lammps_log import LammpsCost, parse_lammps_log
 from .pipeline import MDForwardModel
+from .pool import PoolResult, PoolStatus, Task, run_pool
 from .protocol import (
     MFDA_PROTOCOL,
     PAPER1_PROTOCOL,
@@ -33,6 +34,10 @@ __all__ = [
     "MFDA_PROTOCOL",
     "PAPER1_PROTOCOL",
     "PROTOCOLS",
+    "PoolResult",
+    "PoolStatus",
+    "Task",
+    "run_pool",
     "MDForwardModel",
     "calc_box_size",
     "calc_cpus",
