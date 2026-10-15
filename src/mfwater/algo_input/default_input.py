@@ -5,6 +5,7 @@ Module to build an .hdf5 file with default input for MF-Water.
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import TypedDict
 
@@ -12,7 +13,12 @@ import h5py
 
 
 def build_default_input(args: argparse.Namespace) -> int:
-    """Create an input file for the MF-Water program with default values.
+    """
+    Create an input file for the MF-Water program with default values.
+
+    If the output file already exists, the user is asked whether to overwrite it, but
+    only in an interactive session. Without a terminal (batch job, pipe, test) the
+    function refuses instead of waiting for an answer that never comes.
 
     Parameters
     ----------
@@ -23,10 +29,25 @@ def build_default_input(args: argparse.Namespace) -> int:
     -------
     int
         The exit code of the function, by default 0.
+
+    Raises
+    ------
+    RuntimeError
+        If the output file exists and either the session is not interactive or the user
+        declines to overwrite it.
+    ValueError
+        If the numbers of models, molecules or evaluations are inconsistent.
     """
 
     # check if specified output file already exists
     if Path(args.output).is_file():
+        # input() would block a batch job or fail with EOFError on a closed stdin
+        if not sys.stdin.isatty():
+            raise RuntimeError(
+                f"File '{args.output}' already exists and the session is not "
+                "interactive, refusing to overwrite it. Remove the file or choose "
+                "another one with -o."
+            )
         print(
             f"File '{args.output}' already exists. Do you want to overwrite it? (y/n)"
         )
@@ -104,8 +125,11 @@ def build_default_input(args: argparse.Namespace) -> int:
     return 0
 
 
-def check_input_file(input: str | Path | None, algo: str) -> None:
-    """Validate that the input file exists and matches algorithm requirements.
+def check_input_file(
+    input: str | Path | None, algo: str, models_dir: str | Path = "models"
+) -> None:
+    """
+    Validate that the input file exists and matches algorithm requirements.
 
     Parameters
     ----------
@@ -113,10 +137,20 @@ def check_input_file(input: str | Path | None, algo: str) -> None:
         Path to the input file.
     algo : str
         Name of the algorithm to validate against.
+    models_dir : str | Path, optional
+        Directory of the MD evaluations, only checked for ``chemmodel-post``. Default
+        ``"models"``.
 
-    Returns
-    -------
-    None
+    Raises
+    ------
+    ValueError
+        If no input file is given.
+    FileNotFoundError
+        If the input file (or, for ``chemmodel-post``, the models directory) does not
+        exist.
+    RuntimeError
+        If the last executed algorithm is incompatible with ``algo`` or required groups,
+        attributes or datasets are missing.
     """
 
     # check input file
@@ -127,9 +161,9 @@ def check_input_file(input: str | Path | None, algo: str) -> None:
 
     if algo == "chemmodel-post":
         # check for the model directory
-        if not (Path.cwd() / "models").exists():
+        if not Path(models_dir).exists():
             raise FileNotFoundError(
-                "No models directory found. Run chemical_model_prep first."
+                f"No models directory '{models_dir}' found. Run chemical_model_prep first."
             )
 
     class ModelInfo(TypedDict):
@@ -166,6 +200,7 @@ def check_input_file(input: str | Path | None, algo: str) -> None:
             "last_algo": ["chemmodel-prep", "chemmodel-post", "mfmc-prep"],
             "models": {"attrs": ["n_evals", "n_molecules"], "datasets": []},
         },
+        # `mean` and `std` are computed by mfmc-prep, so they cannot be required
         "mfmc-prep": {
             "group": ["models"],
             "attrs": ["n_models"],
@@ -176,8 +211,6 @@ def check_input_file(input: str | Path | None, algo: str) -> None:
                     "n_evals",
                     "n_molecules",
                     "computation_time",
-                    "mean",
-                    "std",
                 ],
                 "datasets": [
                     "diffusion_coeff",
@@ -222,6 +255,7 @@ def check_input_file(input: str | Path | None, algo: str) -> None:
                 ],
             },
         },
+        # `mean` is not required: eval-estimator deletes it and mfmc writes it
         "mfmc": {
             "group": ["models"],
             "attrs": ["n_models", "budget"],
@@ -234,10 +268,9 @@ def check_input_file(input: str | Path | None, algo: str) -> None:
                     "n_evals_initial",
                     "n_molecules",
                     "correlation",
-                    "mean",
                     "mean_initial",
                     "std_initial",
-                    "computation_time_initial",
+                    "computation_time",
                 ],
                 "datasets": [
                     "diffusion_coeff",

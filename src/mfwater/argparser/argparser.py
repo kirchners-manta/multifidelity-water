@@ -465,7 +465,22 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         type=int,
         dest="seed",
         default=None,
-        help="R|Seed of the random number generator of the Markov chain. If omitted, a random seed is drawn and printed.",
+        help="R|Seed of the random number generator of the Markov chain ('markov-chain') or of the random parameters and seeds of 'chemmodel-prep' (stored in the HDF5 file). If omitted, a random seed is drawn and printed.",
+    )
+    p.add_argument(
+        "--models-dir",
+        type=str,
+        dest="models_dir",
+        default="models",
+        help="R|Directory holding the MD evaluations (<models-dir>/model_k/eval_j) of 'chemmodel-prep' and 'chemmodel-post'. Use a new directory for every phase, results of an earlier phase are never overwritten.",
+    )
+    p.add_argument(
+        "--rmse-cost",
+        type=str,
+        dest="rmse_cost",
+        choices=["calibration", "performance"],
+        default=None,
+        help="R|Costs w_i used for the RMSE and gamma of the MFMC estimator: 'calibration' (the costs the allocation was based on) or 'performance' (costs measured in the evaluation run). If omitted, the algorithm's default is used: 'performance' for 'mfmc' (reproduces paper I).",
     )
     p.add_argument(
         "--forward-model",

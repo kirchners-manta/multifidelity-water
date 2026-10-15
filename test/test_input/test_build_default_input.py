@@ -90,30 +90,51 @@ def test_models_molecules_evals() -> None:
             )
 
 
-def test_existing_file_no_overwrite(tmp_path: Path) -> None:
+def test_existing_file_no_overwrite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test behavior when file exists and user declines overwrite."""
     file_path = tmp_path / "test_output.txt"
     file_path.write_text("existing content")  # Create the file
 
     args = p.parse_args(["-a", "build", "-o", str(file_path)])
 
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
     with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
         with patch("builtins.input", return_value="n"):
             with pytest.raises(RuntimeError):
                 build_default_input(args)
 
 
-def test_existing_file_overwrite(tmp_path: Path) -> None:
-    """Test behavior when file exists and user accepts overwrite."""
+def test_existing_file_overwrite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test behavior when file exists and user accepts overwrite (interactive)."""
     file_path = tmp_path / "test_output.txt"
     file_path.write_text("existing content")  # Create the file
 
     args = p.parse_args(["-a", "build", "-o", str(file_path)])
 
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
     with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
         with patch("builtins.input", return_value="y"):
             build_default_input(args)
             assert file_path.exists()  # Check if overwritten
+
+
+def test_existing_file_non_interactive_refuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a terminal the build refuses and never calls input() or touches the file."""
+    file_path = tmp_path / "test_output.txt"
+    file_path.write_text("existing content")
+    args = p.parse_args(["-a", "build", "-o", str(file_path)])
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False, raising=False)
+    with patch("builtins.input", side_effect=AssertionError("input() was called")):
+        with pytest.raises(RuntimeError, match="not interactive"):
+            build_default_input(args)
+    assert file_path.read_text() == "existing content"
 
 
 def test_check_input_file_exists(tmp_path: Path) -> None:
