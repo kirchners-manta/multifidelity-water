@@ -12,16 +12,8 @@ import subprocess  # noqa: F401
 from ..md.pipeline import (  # noqa: F401
     COMBINED_TRAJECTORY,
     DEFAULT_LAMMPS_CMD,
-    DUMP_EVERY,
-    EQ_END_STEP,
-    MFDA_INPUT_TEMPLATE,
-    MSD_CORRELATION_DEPTH,
-    MSD_DEPTH_FRACTION,
     MSDIFF_TO_NANO,
     PAPER_I_MSDIFF_ARGS,
-    PROD_END_STEP,
-    PRODUCTION_FRAMES,
-    RESTART_EVERY,
     RESUME_HEADER,
     TEMPLATE_DIR,
     TRAVIS_DEPTH_PROMPT,
@@ -42,4 +34,18 @@ from ..md.pipeline import (  # noqa: F401
     write_lammps_input,
     write_resume_input,
 )
+from ..md.protocol import MFDA_MSD_DEPTH_FRACTION as MSD_DEPTH_FRACTION  # noqa: F401
+from ..md.protocol import (
+    MFDA_PROTOCOL,
+)
 from ..md.system import calc_box_size, calc_cpus  # noqa: F401
+
+# Former module constants of the MFDA pipeline; they are the values of the
+# ``mfda`` protocol now and are no longer used by the logic.
+EQ_END_STEP = MFDA_PROTOCOL.eq_end_step
+PROD_END_STEP = MFDA_PROTOCOL.prod_end_step
+DUMP_EVERY = MFDA_PROTOCOL.dump_every
+RESTART_EVERY = MFDA_PROTOCOL.restart_every
+MFDA_INPUT_TEMPLATE = MFDA_PROTOCOL.lammps_template
+PRODUCTION_FRAMES = (PROD_END_STEP - EQ_END_STEP) // DUMP_EVERY
+MSD_CORRELATION_DEPTH = MFDA_PROTOCOL.travis_depth
