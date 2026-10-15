@@ -1,156 +1,87 @@
 """Select the optimal model subset for the MFMC algorithm."""
 
+from __future__ import annotations
+
 import argparse
 import itertools
+from pathlib import Path
 
 import h5py
-import numpy as np
 
-from ..algo_input import check_input_file
+from .. import mfmc_core
+from ..algo_input import attr_array, check_input_file, model_groups
 
 
 def select_optimal_models(args: argparse.Namespace) -> int:
-    """Select the optimal model subset for estimating the expectation.
+    """
+    Select the optimal model subset for estimating the expectation.
 
-    Parameters:
+    The selection itself is :func:`mfwater.mfmc_core.select_models` (SI Algorithm 3).
+    The selected models are written to a **new** file ``args.output`` and renamed
+    ``model_1``, ``model_2``, ... in the order of decreasing squared correlation, which is
+    the order the later algorithms (``eval-estimator``, ``mfmc``) require.
+
+    Parameters
     ----------
     args : argparse.Namespace
-        The command line arguments.
+        The command line arguments. ``args.input`` is the prepared file and
+        ``args.output`` the file to create.
 
-    Returns:
+    Returns
     -------
     int
         Exit code, ``0`` for success.
 
-    Raises:
+    Raises
     ------
+    FileExistsError
+        If the output file already exists (existing files are never overwritten).
     ValueError
-        If the first model does not have a correlation of 1.0.
+        If the first model does not have a correlation of 1 or the data are invalid.
     """
+    # refuse before any work is done, as the MFDA algorithm does
+    if Path(args.output).exists():
+        raise FileExistsError(
+            f"Output file '{args.output}' exists, refusing to overwrite it. "
+            "Choose another file with -o."
+        )
 
     check_input_file(args.input, args.algorithm)
 
     with h5py.File(args.input, "r") as f:
+        # models by decreasing size: index 0 is the high-fidelity model
+        model_items = model_groups(f["models"])
+        std = attr_array(model_items, "std")
+        rho = attr_array(model_items, "correlation")
+        weights = attr_array(model_items, "computation_time")
 
-        # find model groups
-        model_items = [
-            (name, mod)
-            for name, mod in f["models"].items()
-            if isinstance(mod, h5py.Group)
-        ]
+        # indices into model_items, in the order of decreasing rho**2
+        selected, _ = mfmc_core.select_models(std[0], rho, weights)
 
-        # order the models by correlation coefficient squared
-        ordered_models = sorted(
-            model_items, key=lambda x: x[1].attrs["correlation"] ** 2, reverse=True
-        )
-        # debug
-        # print(ordered_models)
-
-        # check if the first model is the one with the highest correlation
-        if ordered_models[0][1].attrs["correlation"] != 1.0:
-            raise ValueError(
-                "The first model must have a correlation of 1.0 with itself."
-            )
-
-        # get group of the high-fidelity model
-        highfidelity_model = ordered_models[0][1]
-        # initialize the list of optimal models with the name of the high-fidelity model
-        m_star = [ordered_models[0][0]]
-        # initialize the error as the variance of the high-fidelity model
-        v_star = highfidelity_model.attrs["std"] ** 2
-
-        # get combinations of indices for model selection
-        combinations = get_ordered_index_combinations(len(ordered_models))
-        # debug
-        # print(combinations)
-
-        # select current models
-        for combo in combinations:
-            current_models = [ordered_models[0][0]] + [
-                ordered_models[i][0] for i in combo
-            ]
-            # debug
-            # print([i for i in combo])
-            # print(current_models)
-
-            # get weights and correlations
-            weights = np.array(
-                [
-                    f["models"][current_models[i]].attrs["computation_time"]
-                    for i in range(len(current_models))
-                ]
-            )
-            # debug
-            # print(len(weights), weights)
-
-            # add an additional 0 here for a technically non-existing model
-            correlations = np.array(
-                [
-                    f["models"][current_models[i]].attrs["correlation"]
-                    for i in range(len(current_models))
-                ]
-                + [0]
-            )
-            # debug
-            # print(len(correlations), correlations)
-
-            # differences in squared correlations
-            differences = np.array(
-                [
-                    (correlations[i] ** 2 - correlations[i + 1] ** 2)
-                    for i in range(len(current_models))
-                ]
-            )
-            # debug
-            # print(len(differences), differences)
-
-            # check if model satisfies the cost / correlation condition, skip if not
-            skip_model = False
-            for i in range(1, len(current_models)):
-                if weights[i - 1] * differences[i] <= weights[i] * differences[i - 1]:
-                    skip_model = True
-                    break
-            if skip_model:
-                continue
-
-            # compute the MSE with optimal coefficients
-            current_mse = (highfidelity_model.attrs["std"] ** 2 / weights[0]) * np.dot(
-                np.sqrt(weights), np.sqrt(differences)
-            ) ** 2
-            # if the MSE is smaller than the current best, update the best models
-            if current_mse < v_star:
-                m_star = current_models
-                v_star = current_mse
-
-        # write optimal models to file
-        # do this by copying the entire model group to a new file
-        # and then deleting the undesired models
-        count = 1
-        with h5py.File(args.output, "w") as g:
-            f.copy(f["models"], g, name="models")
-            g["models"].attrs["n_models"] = len(m_star)
-            for name, mod in model_items:
-                if name not in m_star:
-                    del g["models"][name]
-                else:
-                    # rename the model groups in the new file
-                    if name != f"model_{count}":
-                        g["models"].move(name, f"model_{count}")
-                    count += 1
-            # add last executed algorithm to the file
+        # Copy only the selected groups (plus the datasets of the `models` group) into
+        # the new file. Copying them one by one under their new names avoids the name
+        # collisions that renaming inside a copy of all models could cause.
+        with h5py.File(args.output, "x") as g:
+            gm = g.create_group("models")
+            for key, value in f["models"].attrs.items():
+                gm.attrs[key] = value
+            for name, item in f["models"].items():
+                if isinstance(item, h5py.Dataset):
+                    f["models"].copy(item, gm, name=name)
+            for count, idx in enumerate(selected, start=1):
+                f["models"].copy(model_items[idx][1], gm, name=f"model_{count}")
+            gm.attrs["n_models"] = len(selected)
             g.attrs["last_algo"] = args.algorithm
 
-    # print output to user
     print(f"Optimal models selected and saved to '{args.output}':")
     print(f"{'Model':<8}  {'Mols':>7}  {'Evals':>12}  {'Mean':>12}  {'Std':>12}")
     print("-" * 59)
     with h5py.File(args.output, "r") as g:
-        model_items_output = [
-            (name, mod)
-            for name, mod in g["models"].items()
-            if isinstance(mod, h5py.Group)
-        ]
-        for _, (name, mod) in enumerate(model_items_output):
+        # the new names are model_1 .. model_n in selection order, so this is not the
+        # alphabetical order of h5py but the selection order
+        for count in range(1, len(selected) + 1):
+            name = f"model_{count}"
+            mod = g["models"][name]
             print(
                 f"{name:<8}  {mod.attrs['n_molecules']:7d}  {mod.attrs['n_evals']:12d}  {mod.attrs['mean']:12.6f}  {mod.attrs['std']:12.6f}"
             )
@@ -159,22 +90,23 @@ def select_optimal_models(args: argparse.Namespace) -> int:
 
 
 def get_ordered_index_combinations(n: int) -> list[tuple[int, ...]]:
-    """Generate all combinations of indices from 1 to ``n - 1``.
+    """
+    Generate all combinations of indices from 1 to ``n - 1``.
 
     Parameters
     ----------
     n : int
         The upper limit of the range.
 
+    Returns
+    -------
+    list of tuple of int
+        A list of tuples, each representing a combination of indices.
+
     Raises
     ------
     ValueError
         If n is less than 2.
-
-    Returns
-    -------
-    list[tuple[int, ...]]
-        A list of tuples, each representing a combination of indices.
     """
     if n < 2:
         raise ValueError("N must be at least 2")
