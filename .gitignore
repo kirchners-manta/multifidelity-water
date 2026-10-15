@@ -162,3 +162,6 @@ test/**/models/model_*/eval_*/simout/*
 test/**/models/model_*/eval_*/msd/*
 !test/**/models/model_*/eval_*/simout/log.lammps
 !test/**/models/model_*/eval_*/msd/msdiff_out.csv
+
+# session handoff documents
+.handoff/
