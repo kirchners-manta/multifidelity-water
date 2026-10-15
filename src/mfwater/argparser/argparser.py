@@ -461,6 +461,13 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         help="R|Number of burn-in steps B on the finest level, run in addition to --mcchainlength (M_1), so B + M_1 steps in total. All entries on all levels produced during the first B steps (including subchains) are discarded. B = 0 is allowed (warning).",
     )
     p.add_argument(
+        "--overwrite",
+        action="store_true",
+        dest="overwrite",
+        default=False,
+        help="R|Only for 'build': replace an existing output file without asking (needed in non-interactive sessions). Result files of other algorithms are never overwritten.",
+    )
+    p.add_argument(
         "--seed",
         type=int,
         dest="seed",

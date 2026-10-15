@@ -18,7 +18,10 @@ def build_default_input(args: argparse.Namespace) -> int:
 
     If the output file already exists, the user is asked whether to overwrite it, but
     only in an interactive session. Without a terminal (batch job, pipe, test) the
-    function refuses instead of waiting for an answer that never comes.
+    function refuses instead of waiting for an answer that never comes. With
+    ``--overwrite`` (``args.overwrite``) an existing file is replaced without asking.
+    This is an explicit exception that is only available for this *input* file of the
+    workflow; result files are never overwritten.
 
     Parameters
     ----------
@@ -40,13 +43,13 @@ def build_default_input(args: argparse.Namespace) -> int:
     """
 
     # check if specified output file already exists
-    if Path(args.output).is_file():
+    if Path(args.output).is_file() and not getattr(args, "overwrite", False):
         # input() would block a batch job or fail with EOFError on a closed stdin
         if not sys.stdin.isatty():
             raise RuntimeError(
                 f"File '{args.output}' already exists and the session is not "
-                "interactive, refusing to overwrite it. Remove the file or choose "
-                "another one with -o."
+                "interactive, refusing to overwrite it. Remove the file, choose "
+                "another one with -o or pass --overwrite."
             )
         print(
             f"File '{args.output}' already exists. Do you want to overwrite it? (y/n)"
