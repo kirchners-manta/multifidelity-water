@@ -111,13 +111,15 @@ where `models` and `model_{n}` are groups and `n_models` is an attribute of the 
 Every `model_{n}` group has attributes `n_molecules` and `n_evals` (the number of molecules and evaluations for the model).
 Additionally, the `last_algo` attribute is added to the root group, which stores the name of the last executed algorithm and checks whether a new algorithm can be executed on the input file.
 
-The `build` algorithm can be executed several times, but the output file will be overwritten if it already exists (question will be asked to the user).
+The `build` algorithm can be executed several times. If the output file already exists, the user is asked whether to overwrite it, but only in an interactive session; in a batch job, a pipe or any other session without a terminal, `build` refuses and leaves the file untouched.
 
 ### chemmod-prep
 This algorithm generates the directories and input files for the MD simualtion using LAMMPS for each model and evaluation.
 To do so, it uses template input files available [here](./src//mfwater//algo_chemical_model/data/), modifies them accordingly, and uses [fftool](https://github.com/paduagroup/fftool) and [packmol](https://m3g.github.io/packmol/) to create the LAMMPS data files.
-Specifically, the program draws random Lennard-Jones (LJ) parameters from a Gaussian distribution centered at the original values of the OPC3 force field with a standard deviation of 1/120 of the original value for $\epsilon$ and $\sigma$.
+Specifically, the program draws random Lennard-Jones (LJ) parameters from a Gaussian distribution centered at the original values of the OPC3 force field with a standard deviation of 1/300 of the original value for $\epsilon$ and $\sigma$ (`--params lj`), or draws the oxygen partial charge with a standard deviation of 1/50 of its value and sets $q_\text{H} = -q_\text{O}/2$ (`--params q`).
+The option `--params lj-q` perturbs both; paper I never perturbs both at once.
 Additionally, random seeds are generated for the LAMMPS velocity command and the PACKMOL input file.
+The random number generator is seeded with `--seed` (a random seed is drawn, printed and stored if the option is omitted); the seed is stored as attribute `seed` of the `models` group, so the sampled parameters and seeds can be reproduced.
 
 It is important to note that the program will draw $n_\text{max}$ random LJ parameters where $n_\text{max}$ is the maximum number of evaluations of all models.
 These parameters (and the random seeds) are stored as datasets of the `models` group in the input file.
@@ -155,16 +157,19 @@ After executing the `chemmod-prep` algorithm, the user can run the simulations i
 When completed, the mean squared displacement (MSD) and the diffusion coefficient can be calculated using [TRAVIS](http://www.travis-analyzer.de/) and [msdiff](https://github.com/kirchners-manta/msdiff) (not included in this code).
 Please note that when specifying the `--orthoboxy` option, the TRAVIS and msdiff anlyses have to be adjusted accordingly, as the simulation box is not cubic anymore.
 
-The `chemmodel-prep` algorithm cannot be executed several times on the same input file, as it will overwrite the existing files and draw new random parameters.
+The evaluations are created below `--models-dir` (default `models`).
+The `chemmodel-prep` algorithm cannot be executed several times on the same input file, as it would draw new random parameters.
+It also refuses to run if the `siminp`, `simout` or `msd` directory of one of its evaluations already exists (for example from the calibration phase), and nothing is deleted or overwritten. Use a new `--models-dir` for every phase, and pass the same directory to `chemmodel-post`. `fftool` and `packmol` are called without a shell.
 
 ### chemmod-post
 This algorithm postprocesses the results of the MD simulations.
 ```bash
-mfwater -a chemmodel-post -i big_oms.hdf5
+mfwater -a chemmodel-post -i big_oms.hdf5 --models-dir models
 ```
-It looks for the output files of LAMMPS and msdiff in the `simout/log.lammps` and `msd/misdiff_out.csv` folders/files of the models and evaluations directories, to extract the computation time and the diffusion coefficient, respectively.
+It looks for the output files of LAMMPS and msdiff in the `simout/log.lammps` and `msd/msdiff_out.csv` folders/files of the models and evaluations directories, to extract the computation time and the diffusion coefficient, respectively.
 For each model, the dataset `diffusion_coeff` is added to the model group, containing the diffusion coefficient (in $10^{-12}\,\text{m}^2\,\text{s}^{-1}$) for each evaluation.
-Additionally, each model will be given an attibute `computation_time` with the averaged computation time (in s) of the evaluations.
+Additionally, each model will be given an attibute `computation_time` with the averaged cost of the evaluations in core-seconds: the LAMMPS `Total wall time` multiplied by the number of MPI ranks, read from the log of that evaluation only. An unfinished log (no `Total wall time` line) is an error.
+The LJ parameters and partial charges printed in each LAMMPS log must agree with the stored ones, otherwise the algorithm stops with the model and evaluation number. (Files in the old format without partial charges skip the charge check with a warning.)
 The expected file structure after executing the `chemmod-post` algorithm is:
 ```
 HDF5 "blub.hdf5" {
@@ -190,6 +195,9 @@ The `chemmodel-post` algorithm can be executed several times on the same input f
 ### mfmc-prep
 This algorithm calculates the mean and standard deviation of the diffusion coefficients for each model and stores them as attributes `mean` and `std` in the respective model group.
 Based on that, the correlations between the models are calculated and stored as attribute `correlation` in the respective model group.
+
+The models are ordered by decreasing number of molecules (the first one is the high-fidelity model), never by the alphabetical order of the HDF5 group names, so ten or more models work.
+The statistics are computed by `mfwater.mfmc_core` (standard deviation and correlation with `ddof = 0`).
 
 The algorithm can be executed with the following command (using a difrerent input file with six models):
 ```bash
@@ -250,7 +258,8 @@ model_3        32          1000   1772.538452    507.623077
 ```
 saying that of the previous six models, three (numbers 1, 5, and 6) were selected for the MFMC algorithm, with the latter two being renamed to `model_2` and `model_3`, respectively.
 
-The `model-select` algorithm can be executed several times on the same input file, but it will overwrite the existing models and parameters.
+The selected models are renamed `model_1`, `model_2`, ... in the order of decreasing squared correlation, which is the order the following algorithms use.
+The output file must not exist: `model-select` refuses to overwrite an existing file (choose another one with `-o`). The input file is not changed.
 
 ### eval-estimator
 This algorithm estimates the optimal number of evaluations for the selected models.
@@ -300,7 +309,7 @@ After completing the `eval-estimator` step, the `chemmodel-prep` and `chemmod-po
 
 ### mfmc
 This algorithm computes the MFMC estimator based on the selected models and their results obtained with optimal number of evaluations.
-The MFMC estimator and its error are added as attributes `mfmc_estimator` `mfmc_error` to the input file.
+The MFMC estimator, its error and `gamma` are added as attributes `mfmc_estimator`, `mfmc_error` and `gamma` to the input file.
 ```bash
 mfwater -a mfmc -i selected_models.hdf5
 ```
@@ -324,9 +333,12 @@ FILE_CONTENTS {
  attribute  /last_algo
  group      /models
  attribute  /models/budget
+ attribute  /models/gamma
  attribute  /models/mfmc_error
+ attribute  /models/mfmc_error_performance_cost
  attribute  /models/mfmc_estimator
  attribute  /models/n_models
+ attribute  /models/rmse_cost
  dataset    /models/lj_params
  dataset    /models/lj_params_initial
  group      /models/model_1
@@ -348,6 +360,12 @@ FILE_CONTENTS {
  }
 }
 ```
+The RMSE `mfmc_error` (Eq. 20 of paper I) and the ratio `gamma` (Eq. 22; MSE of the MFMC estimator relative to the high-fidelity Monte Carlo estimator, `gamma < 1` means a saving) are computed with the costs selected by `--rmse-cost`:
+- `performance` (default): the costs `computation_time` measured in the evaluation run; this reproduces the `mfmc_error` stored in the paper-I files.
+- `calibration`: the costs `computation_time_initial` of the calibration run, i.e. the costs the allocation was based on.
+
+`mfmc_error_performance_cost` and `mfmc_error_calibration_cost` hold the RMSE of each basis (if its costs are stored in the file), `gamma` belongs to the selected basis, and `rmse_cost` records which one was selected.
+
 The `mfmc` algorithm can be executed several times on the same input file, but it will overwrite the existing attributes.
 
 ### markov-chain
@@ -386,7 +404,7 @@ Nothing is overwritten or deleted. Existing result files are refused.
 Chains with an existing `chain_{c:03d}.hdf5` are skipped; the others are replayed from the start with the same seed, and every evaluation with a `result.json` in the cache returns instantly (the number of cached/computed evaluations is printed per chain).
 The arguments and an internal `algorithm_version` (bumped when a code change alters the results of a replay) are compared with `manifest.json`; on a mismatch the run aborts (use a new `--workdir`). A manifest without `algorithm_version` counts as version 1 and is refused.
 A different git hash, uncommitted changes (`git_dirty`) or a different package version only print a `Warning:`; you are responsible for the change not affecting results. `--lammps-cmd` and the print level are stored but not compared (e.g. `mpirun` -> `srun` between restarts).
-An interrupted MD evaluation leaves its `attempt_{k}` directory in place (never modified). The MFDA LAMMPS input `src/mfwater/md/data/input_mfda.lmp` is the paper-I protocol plus `restart 100000 restart.*` (a restart file every 100 ps, named by timestep, so none is overwritten) and `run ... upto` (absolute timesteps 1 000 000 and 3 000 000).
+An interrupted MD evaluation leaves its `attempt_{k}` directory in place (never modified). The MFDA LAMMPS input `src/mfwater/md/data/input_mfda.lmp` is the paper-I protocol plus `restart 100000 restart.*` (a restart file every 100 ps, named by timestep, so none is overwritten) and `run ... upto` (absolute timesteps 250 000 and 1 250 000: 0.25 ns equilibration and 1 ns production at 1 fs).
 If the newest attempt of an evaluation has no finished analysis but has restart files, the next attempt `attempt_{k+1}` resumes from the newest one instead of starting over: it reads `siminp/input_resume.lmp` (generated; `read_restart`, then the settings a restart file does not store, same `fTHERMO` fix ID), and records the source in `attempt_{k+1}/resume_from.txt`.
 Several interruptions in a row are followed back through `resume_from.txt`. A restart file is used only if its size equals that of the next-older one (all restart files of an evaluation have the same size); a smaller, probably truncated newest file (e.g. job killed while writing) is skipped with a `Warning:` and never modified or deleted, and without any valid restart file the evaluation starts fresh in a new attempt. This size check is a heuristic (see `select_restart_file`). Without any restart file the evaluation starts fresh in a new attempt, as before.
 For a resumed evaluation the production trajectory is spread over several attempts; TRAVIS reads the new file `msd/prod_combined.lammpstrj` (frames of the earlier attempts below the restart step plus all frames of the resumed run, 1001 frames, spacing 1000 steps; the build fails if there is a gap).
