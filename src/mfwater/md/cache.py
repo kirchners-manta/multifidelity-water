@@ -295,9 +295,16 @@ class CachedForwardModel:
             "seeds": {"packmol": packmol_seed, "velocity": velocity_seed},
             "orthoboxy": getattr(self.model, "orthoboxy", None),
             "wall_time_s": wall_time,
+            # core-seconds of LAMMPS (wall time x MPI ranks, summed over the
+            # attempts of a resumed evaluation); None for models without a log
+            "cpu_time_s": None,
+            "n_mpi": None,
             "attempt_dir": None if attempt is None else str(attempt),
             "attempt_dirs": None if attempts is None else [str(a) for a in attempts],
         }
+        cost = getattr(self.model, "last_cost", None)
+        if cost is not None:
+            payload.update(cost)
         # The temporary file lives in the same directory so that os.replace is
         # an atomic rename on the same file system.
         fd, tmp = tempfile.mkstemp(dir=entry, prefix=".result_", suffix=".tmp")

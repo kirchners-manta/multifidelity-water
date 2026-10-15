@@ -30,6 +30,7 @@ import shutil
 import subprocess
 from collections.abc import Iterator, Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -40,6 +41,7 @@ from .forward_model import (
     evaluation_key,
     key_hash,
 )
+from .lammps_log import parse_lammps_log
 from .protocol import MFDA_PROTOCOL, MDProtocol, get_protocol
 from .system import calc_box_size, calc_cpus
 
@@ -626,6 +628,11 @@ class MDForwardModel:
         Registered protocol name (``"mfda"`` or ``"paper1"``) or a protocol
         object. Default ``"mfda"``, which reproduces the MFDA evaluations
         exactly.
+    require_cost : bool, optional
+        Raise if the cost cannot be read from the LAMMPS log of the (last)
+        attempt. By default a failure is only recorded (``cost_error``): the
+        cost is a by-product and must not kill a long MFDA evaluation. MFMC
+        needs the cost, so its callers set this to True.
 
     Raises
     ------
@@ -642,6 +649,9 @@ class MDForwardModel:
     last_attempt_dirs : list[Path]
         All attempt directories that contributed to the most recent result, in
         chronological order (several if the evaluation was resumed).
+    last_cost : dict | None
+        Cost of the most recent evaluation, written into ``result.json`` by
+        :class:`~mfwater.md.cache.CachedForwardModel`; see :meth:`_record_cost`.
     """
 
     def __init__(
@@ -652,6 +662,7 @@ class MDForwardModel:
         travis_template: str | Path | None = None,
         msdiff_args: Sequence[str] | None = None,
         protocol: str | MDProtocol = "mfda",
+        require_cost: bool = False,
     ) -> None:
         self.work_dir_root = Path(work_dir_root)
         self.protocol = get_protocol(protocol)
@@ -672,6 +683,8 @@ class MDForwardModel:
         )
         self.last_attempt_dir: Path | None = None
         self.last_attempt_dirs: list[Path] = []
+        self.require_cost = require_cost
+        self.last_cost: dict[str, Any] | None = None
 
     def _required_programs(self) -> list[str]:
         """Return the executables needed for one evaluation."""
@@ -870,6 +883,7 @@ class MDForwardModel:
             If ``theta`` or ``seeds`` are invalid.
         """
         theta = _check_theta(theta)
+        self.last_cost = None
         for prog in self._required_programs():
             if shutil.which(prog) is None:
                 raise RuntimeError(f"{prog} is not installed or not in PATH.")
@@ -903,6 +917,7 @@ class MDForwardModel:
             )
             self.last_attempt_dirs = [attempt]
             self._run_lammps(n_molecules, simout, "input.lmp")
+            self.last_cost = self._record_cost([attempt])
             return self._analyse(msd, "../simout/prod.lammpstrj")
 
         step, restart_file = point
@@ -916,6 +931,7 @@ class MDForwardModel:
         chain = self._attempt_chain(attempt)
         self.last_attempt_dirs = [a for a, _ in chain]
         self._run_lammps(n_molecules, simout, "input_resume.lmp")
+        self.last_cost = self._record_cost(self.last_attempt_dirs)
         merge_trajectories(
             [(a / "simout" / "prod.lammpstrj", stop) for a, stop in chain],
             msd / COMBINED_TRAJECTORY,
@@ -924,6 +940,72 @@ class MDForwardModel:
             spacing=self.protocol.dump_every,
         )
         return self._analyse(msd, COMBINED_TRAJECTORY)
+
+    def _record_cost(self, attempts: Sequence[Path]) -> dict[str, Any]:
+        """Read the cost of an evaluation from the LAMMPS logs of its attempts.
+
+        Each log is parsed on its own (:func:`~mfwater.md.lammps_log.parse_lammps_log`).
+        The cost of a resumed evaluation is the **sum over its attempts**, so
+        the work that was repeated after the last restart file counts. An
+        attempt that was killed has no ``Total wall time`` line; its cost is
+        unknown, so the sum is then a lower bound (``cost_complete`` False).
+
+        Parameters
+        ----------
+        attempts : Sequence[Path]
+            Attempt directories in chronological order; the last one finished.
+
+        Returns
+        -------
+        dict
+            ``cpu_time_s`` (core-seconds, None if the last log is unreadable),
+            ``n_mpi`` (ranks of the last attempt), ``cost_attempts`` (per
+            attempt wall time, ranks and core-seconds or the error),
+            ``cost_complete`` and, on failure, ``cost_error``.
+
+        Raises
+        ------
+        RuntimeError
+            If the log of the last attempt cannot be parsed and
+            ``require_cost`` is True.
+        """
+        entries: list[dict[str, Any]] = []
+        total = 0.0
+        complete = True
+        last_ranks: int | None = None
+        for k, att in enumerate(attempts):
+            try:
+                cost = parse_lammps_log(att / "simout" / "log.lammps")
+            except RuntimeError as exc:
+                entries.append({"attempt": att.name, "error": str(exc)})
+                if k == len(attempts) - 1:
+                    if self.require_cost:
+                        raise
+                    return {
+                        "cpu_time_s": None,
+                        "n_mpi": None,
+                        "cost_attempts": entries,
+                        "cost_complete": False,
+                        "cost_error": str(exc),
+                    }
+                complete = False
+                continue
+            entries.append(
+                {
+                    "attempt": att.name,
+                    "wall_time_s": cost.wall_time_s,
+                    "n_mpi": cost.n_mpi,
+                    "cpu_time_s": cost.cpu_time_s,
+                }
+            )
+            total += cost.cpu_time_s
+            last_ranks = cost.n_mpi
+        return {
+            "cpu_time_s": total,
+            "n_mpi": last_ranks,
+            "cost_attempts": entries,
+            "cost_complete": complete,
+        }
 
     def _build_box(self, n: int, siminp: Path, packmol_seed: int) -> None:
         """Create the LAMMPS data file with fftool and packmol.
