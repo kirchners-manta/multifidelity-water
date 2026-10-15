@@ -7,6 +7,10 @@ Layout::
 A result exists if and only if ``result.json`` exists. It is written atomically
 (temporary file + ``os.replace``), so an interrupted run never leaves a partial
 result. Directories of MD attempts next to it (``attempt_k/``) are never touched.
+
+The directory name is the hash of the evaluation key. For the ``mfda`` protocol
+without explicit seeds the key is the one of the first MFDA version, so existing
+caches stay valid; see :func:`mfwater.md.forward_model.evaluation_key`.
 """
 
 from __future__ import annotations
@@ -22,6 +26,8 @@ from typing import Any
 import numpy as np
 
 from .forward_model import (
+    LEGACY_PROTOCOL,
+    EvaluationKey,
     ForwardModel,
     _check_theta,
     derive_seeds,
@@ -55,11 +61,49 @@ class CachedForwardModel:
         self.model = model
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self._memo: dict[tuple[int, str, str, str], float] = {}
+        self._memo: dict[EvaluationKey, float] = {}
         self.n_hits = 0
         self.n_computed = 0
 
-    def entry_dir(self, n_molecules: int, theta: np.ndarray) -> Path:
+    def make_key(
+        self,
+        n_molecules: int,
+        theta: np.ndarray,
+        seeds: tuple[int, int] | None = None,
+    ) -> EvaluationKey:
+        """Build the evaluation key including protocol and box shape of the model.
+
+        Parameters
+        ----------
+        n_molecules : int
+            Number of molecules.
+        theta : np.ndarray
+            Parameters ``(epsilon_OO, sigma_OO, q_O)``.
+        seeds : tuple[int, int] | None, optional
+            Explicit ``(packmol_seed, velocity_seed)``.
+
+        Returns
+        -------
+        tuple
+            Key from :func:`mfwater.md.forward_model.evaluation_key`. Models
+            without ``protocol``/``orthoboxy`` attributes count as ``mfda`` with
+            a cubic box.
+        """
+        protocol = getattr(self.model, "protocol", None)
+        return evaluation_key(
+            n_molecules,
+            theta,
+            protocol=LEGACY_PROTOCOL if protocol is None else protocol.name,
+            orthoboxy=bool(getattr(self.model, "orthoboxy", False)),
+            seeds=seeds,
+        )
+
+    def entry_dir(
+        self,
+        n_molecules: int,
+        theta: np.ndarray,
+        seeds: tuple[int, int] | None = None,
+    ) -> Path:
         """Return the cache directory of one evaluation.
 
         Parameters
@@ -68,20 +112,27 @@ class CachedForwardModel:
             Number of molecules.
         theta : np.ndarray
             Parameters ``(epsilon_OO, sigma_OO, q_O)``.
+        seeds : tuple[int, int] | None, optional
+            Explicit ``(packmol_seed, velocity_seed)``.
 
         Returns
         -------
         Path
             ``<cache_dir>/N{n}/{key_hash}``.
         """
-        key = evaluation_key(n_molecules, theta)
+        key = self.make_key(n_molecules, theta, seeds)
         return self.cache_dir / f"N{key[0]}" / key_hash(key)
 
     def __len__(self) -> int:
         """Return the number of results stored on disk."""
         return sum(1 for _ in self.cache_dir.glob("N*/*/result.json"))
 
-    def __call__(self, n_molecules: int, theta: np.ndarray) -> float:
+    def __call__(
+        self,
+        n_molecules: int,
+        theta: np.ndarray,
+        seeds: tuple[int, int] | None = None,
+    ) -> float:
         """Return D for ``(n_molecules, theta)``, computing it only once.
 
         Parameters
@@ -90,6 +141,10 @@ class CachedForwardModel:
             Number of molecules.
         theta : np.ndarray
             Parameters ``(epsilon_OO, sigma_OO, q_O)``.
+        seeds : tuple[int, int] | None, optional
+            Explicit ``(packmol_seed, velocity_seed)`` instead of seeds derived
+            from the key. They are part of the key. The wrapped model must
+            accept a ``seeds`` keyword argument if they are given.
 
         Returns
         -------
@@ -99,17 +154,18 @@ class CachedForwardModel:
         Raises
         ------
         ValueError
-            If ``theta`` is invalid or a stored result is inconsistent.
+            If ``theta`` or ``seeds`` are invalid or a stored result is
+            inconsistent.
         RuntimeError
             If the wrapped model returns a non-finite value.
         """
         theta = _check_theta(theta)
-        key = evaluation_key(n_molecules, theta)
+        key = self.make_key(n_molecules, theta, seeds)
         if key in self._memo:
             self.n_hits += 1
             return self._memo[key]
 
-        entry = self.entry_dir(n_molecules, theta)
+        entry = self.cache_dir / f"N{key[0]}" / key_hash(key)
         result_file = entry / "result.json"
         if result_file.exists():
             d = self._read_result(
@@ -121,7 +177,10 @@ class CachedForwardModel:
 
         entry.mkdir(parents=True, exist_ok=True)
         start = time.perf_counter()
-        d = float(self.model(n_molecules, theta))
+        if seeds is None:
+            d = float(self.model(n_molecules, theta))
+        else:
+            d = float(self.model(n_molecules, theta, seeds=seeds))  # type: ignore[call-arg]
         wall = time.perf_counter() - start
         if not math.isfinite(d):
             raise RuntimeError(
@@ -135,7 +194,7 @@ class CachedForwardModel:
     @staticmethod
     def _read_result(
         path: Path,
-        key: tuple[int, str, str, str],
+        key: EvaluationKey,
         orthoboxy: bool | None = None,
     ) -> float:
         """Read and validate a stored result.
@@ -144,7 +203,7 @@ class CachedForwardModel:
         ----------
         path : Path
             Path of ``result.json``.
-        key : tuple[int, str, str, str]
+        key : tuple
             Expected evaluation key.
         orthoboxy : bool | None, optional
             Box-shape flag of the wrapped model (``None`` if it has none). The
@@ -170,7 +229,17 @@ class CachedForwardModel:
             data["theta_hex"]["sigma"],
             data["theta_hex"]["q_O"],
         )
-        if tuple(stored) != key:
+        if len(key) == 4:
+            # legacy key of the mfda protocol; results of the first MFDA version
+            # have no "protocol" entry, later ones store "mfda"
+            ok = tuple(stored) == key and data.get("protocol", LEGACY_PROTOCOL) == (
+                LEGACY_PROTOCOL
+            )
+            ok = ok and data.get("key") in (None, list(key))
+        else:
+            # extended key: stored as a JSON list (tuples become lists)
+            ok = data.get("key") == json.loads(json.dumps(key))
+        if not ok:
             raise ValueError(f"Cache entry {path} does not match key {key}.")
         stored_ob = data.get("orthoboxy")  # absent in results of older versions
         if orthoboxy is not None and stored_ob is not None and stored_ob != orthoboxy:
@@ -184,7 +253,7 @@ class CachedForwardModel:
     def _write_result(
         self,
         entry: Path,
-        key: tuple[int, str, str, str],
+        key: EvaluationKey,
         theta: np.ndarray,
         d: float,
         wall_time: float,
@@ -195,7 +264,7 @@ class CachedForwardModel:
         ----------
         entry : Path
             Directory of the evaluation.
-        key : tuple[int, str, str, str]
+        key : tuple
             Evaluation key.
         theta : np.ndarray
             Parameters ``(epsilon_OO, sigma_OO, q_O)``.
@@ -219,6 +288,10 @@ class CachedForwardModel:
             },
             "theta_hex": {"epsilon": key[1], "sigma": key[2], "q_O": key[3]},
             "key_hash": key_hash(key),
+            "key": list(key),
+            "protocol": getattr(
+                getattr(self.model, "protocol", None), "name", LEGACY_PROTOCOL
+            ),
             "seeds": {"packmol": packmol_seed, "velocity": velocity_seed},
             "orthoboxy": getattr(self.model, "orthoboxy", None),
             "wall_time_s": wall_time,

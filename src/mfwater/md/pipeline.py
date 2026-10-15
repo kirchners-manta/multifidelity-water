@@ -837,7 +837,12 @@ class MDForwardModel:
             chain.insert(0, (current, int(m.group(1))))
         return chain
 
-    def __call__(self, n_molecules: int, theta: np.ndarray) -> float:
+    def __call__(
+        self,
+        n_molecules: int,
+        theta: np.ndarray,
+        seeds: tuple[int, int] | None = None,
+    ) -> float:
         """Run the MD pipeline and return the diffusion coefficient.
 
         Parameters
@@ -846,6 +851,11 @@ class MDForwardModel:
             Number of molecules.
         theta : np.ndarray
             ``(epsilon_OO, sigma_OO, q_O)`` in kcal/mol, Angstrom, e.
+        seeds : tuple[int, int] | None, optional
+            Explicit ``(packmol_seed, velocity_seed)``, e.g. shared by all
+            models of an MFMC calibration sample. Default: derived from the
+            evaluation key. Explicit seeds are part of the key, hence of the
+            work directory name.
 
         Returns
         -------
@@ -856,13 +866,21 @@ class MDForwardModel:
         ------
         RuntimeError
             If a program is missing or a step fails.
+        ValueError
+            If ``theta`` or ``seeds`` are invalid.
         """
         theta = _check_theta(theta)
         for prog in self._required_programs():
             if shutil.which(prog) is None:
                 raise RuntimeError(f"{prog} is not installed or not in PATH.")
 
-        key = evaluation_key(n_molecules, theta)
+        key = evaluation_key(
+            n_molecules,
+            theta,
+            protocol=self.protocol.name,
+            orthoboxy=self.orthoboxy,
+            seeds=seeds,
+        )
         packmol_seed, velocity_seed = derive_seeds(key)
         base = self.work_dir_root / f"N{n_molecules}" / key_hash(key)
         # Resume only if the newest attempt was interrupted after a restart file;

@@ -9,12 +9,19 @@ and cacheable, every evaluation is identified by a key built from ``N`` and the
 exact float64 values of ``theta``. Random seeds of the forward model are derived
 from a hash of this key, so they never touch the random number generator of the
 sampling algorithm.
+
+Key compatibility: for the default protocol ``"mfda"`` without explicit seeds
+the key is the 4-tuple ``(N, hex(eps), hex(sigma), hex(q_O))`` of the first MFDA
+version. Hash, derived seeds and cache directory names of existing MFDA runs
+depend on it and must never change (``test/test_md/test_mfda_regression.py``).
+Every other combination uses the extended key
+``(N, hex..., protocol, orthoboxy, seeds | None)``.
 """
 
 from __future__ import annotations
 
 import hashlib
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -22,6 +29,12 @@ from ..argparser import constants
 
 #: Largest seed accepted by LAMMPS/packmol (signed 32 bit integer).
 MAX_SEED = 2**31 - 1
+
+#: Name of the protocol whose keys keep the original 4-tuple form.
+LEGACY_PROTOCOL = "mfda"
+
+#: Identifier of one evaluation: 4-tuple (legacy) or extended 7-tuple.
+EvaluationKey = tuple[Any, ...]
 
 
 class ForwardModel(Protocol):
@@ -78,11 +91,53 @@ def _check_theta(theta: np.ndarray) -> np.ndarray:
     return arr
 
 
-def evaluation_key(n_molecules: int, theta: np.ndarray) -> tuple[int, str, str, str]:
+def _check_seeds(seeds: tuple[int, int] | None) -> tuple[int, int] | None:
+    """Validate explicit MD seeds.
+
+    Parameters
+    ----------
+    seeds : tuple[int, int] | None
+        ``(packmol_seed, velocity_seed)`` or None.
+
+    Returns
+    -------
+    tuple[int, int] | None
+        The seeds as a tuple of Python ints, or None.
+
+    Raises
+    ------
+    ValueError
+        If a seed is not an integer in ``[1, MAX_SEED]`` (0 means "random" to
+        some codes).
+    """
+    if seeds is None:
+        return None
+    if len(seeds) != 2:
+        raise ValueError(f"seeds must be (packmol, velocity), got {seeds!r}.")
+    out = []
+    for s in seeds:
+        if int(s) != s or not 1 <= int(s) <= MAX_SEED:
+            raise ValueError(f"seed {s!r} is not an integer in [1, {MAX_SEED}].")
+        out.append(int(s))
+    return out[0], out[1]
+
+
+def evaluation_key(
+    n_molecules: int,
+    theta: np.ndarray,
+    protocol: str = LEGACY_PROTOCOL,
+    orthoboxy: bool = False,
+    seeds: tuple[int, int] | None = None,
+) -> EvaluationKey:
     """Build the exact identifier of one forward evaluation.
 
     ``float.hex()`` is used because it is an exact float64 round trip, unlike
     decimal formatting.
+
+    For ``protocol == "mfda"`` without explicit ``seeds`` the key is the
+    original 4-tuple; ``orthoboxy`` is then *not* part of it (the box shape of
+    MFDA results is checked against ``result.json`` instead). Otherwise the key
+    is ``(n, hex(epsilon), hex(sigma), hex(q_O), protocol, orthoboxy, seeds)``.
 
     Parameters
     ----------
@@ -90,27 +145,38 @@ def evaluation_key(n_molecules: int, theta: np.ndarray) -> tuple[int, str, str, 
         Number of molecules.
     theta : np.ndarray
         Parameters ``(epsilon_OO, sigma_OO, q_O)``.
+    protocol : str, optional
+        Name of the MD protocol.
+    orthoboxy : bool, optional
+        Whether the box is an OrthoBoXY box (tetragonal).
+    seeds : tuple[int, int] | None, optional
+        Explicit ``(packmol_seed, velocity_seed)``; None derives them from the
+        key (:func:`derive_seeds`).
 
     Returns
     -------
-    tuple[int, str, str, str]
-        ``(n, hex(epsilon), hex(sigma), hex(q_O))``.
+    tuple
+        The evaluation key.
 
     Raises
     ------
     ValueError
-        If ``theta`` is invalid.
+        If ``theta`` or ``seeds`` are invalid.
     """
     eps, sig, q = (float(x) for x in _check_theta(theta))
-    return (int(n_molecules), eps.hex(), sig.hex(), q.hex())
+    checked = _check_seeds(seeds)
+    base = (int(n_molecules), eps.hex(), sig.hex(), q.hex())
+    if protocol == LEGACY_PROTOCOL and checked is None:
+        return base
+    return (*base, protocol, bool(orthoboxy), checked)
 
 
-def _full_digest(key: tuple[int, str, str, str]) -> str:
+def _full_digest(key: EvaluationKey) -> str:
     """Return the full SHA-256 hex digest of ``repr(key)``.
 
     Parameters
     ----------
-    key : tuple[int, str, str, str]
+    key : tuple
         Key from :func:`evaluation_key`.
 
     Returns
@@ -121,12 +187,12 @@ def _full_digest(key: tuple[int, str, str, str]) -> str:
     return hashlib.sha256(repr(key).encode("utf-8")).hexdigest()
 
 
-def key_hash(key: tuple[int, str, str, str]) -> str:
+def key_hash(key: EvaluationKey) -> str:
     """Return the short, stable hash of an evaluation key.
 
     Parameters
     ----------
-    key : tuple[int, str, str, str]
+    key : tuple
         Key from :func:`evaluation_key`.
 
     Returns
@@ -137,12 +203,14 @@ def key_hash(key: tuple[int, str, str, str]) -> str:
     return _full_digest(key)[:16]
 
 
-def derive_seeds(key: tuple[int, str, str, str]) -> tuple[int, int]:
+def derive_seeds(key: EvaluationKey) -> tuple[int, int]:
     """Derive the MD seeds from the full hash of an evaluation key.
+
+    Explicit seeds stored in an extended key are returned unchanged.
 
     Parameters
     ----------
-    key : tuple[int, str, str, str]
+    key : tuple
         Key from :func:`evaluation_key`.
 
     Returns
@@ -150,6 +218,8 @@ def derive_seeds(key: tuple[int, str, str, str]) -> tuple[int, int]:
     tuple[int, int]
         ``(packmol_seed, velocity_seed)``, both in ``[1, 2**31 - 1]``.
     """
+    if len(key) == 7 and key[6] is not None:
+        return key[6]
     digest = _full_digest(key)
     # Two independent 64-bit slices of the digest; the modulo maps to [0, MAX-1]
     # and the +1 excludes 0, which some codes treat as "random seed".
