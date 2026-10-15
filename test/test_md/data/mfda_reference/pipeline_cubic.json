@@ -1,0 +1,71 @@
+{
+ "calls": [
+  [
+   [
+    "fftool",
+    "100",
+    "opc3.zmat",
+    "--box",
+    "14.423424,14.423424,14.423424"
+   ],
+   "N100/2e31a4941f0a1a2e/attempt_1/siminp"
+  ],
+  [
+   [
+    "packmol"
+   ],
+   "N100/2e31a4941f0a1a2e/attempt_1/siminp"
+  ],
+  [
+   [
+    "fftool",
+    "100",
+    "opc3.zmat",
+    "--box",
+    "14.423424,14.423424,14.423424",
+    "--lmp"
+   ],
+   "N100/2e31a4941f0a1a2e/attempt_1/siminp"
+  ],
+  [
+   [
+    "mpirun",
+    "-np",
+    "2",
+    "lmp",
+    "-i",
+    "../siminp/input.lmp"
+   ],
+   "N100/2e31a4941f0a1a2e/attempt_1/simout"
+  ],
+  [
+   [
+    "travis",
+    "-i",
+    "travis_input_msd.txt",
+    "-p",
+    "../simout/prod.lammpstrj"
+   ],
+   "N100/2e31a4941f0a1a2e/attempt_1/msd"
+  ],
+  [
+   [
+    "msdiff",
+    "-f",
+    "msd_H2O_#2.csv",
+    "--from-travis",
+    "--hummer",
+    "298.15",
+    "0.89e-3",
+    "0.0"
+   ],
+   "N100/2e31a4941f0a1a2e/attempt_1/msd"
+  ]
+ ],
+ "entry": "N100/2e31a4941f0a1a2e",
+ "files": {
+  "siminp/pack.inp": "tolerance 2.0\ninside box 0.500000 0.500000 0.500000 13.923424 13.923424 13.923424\nseed 227955534\n",
+  "siminp/input.lmp": "# created by fftool, adapted for MFDA restarts (see md_pipeline.py)\n# Identical to algo_chemical_model/data/input.lmp except for the 'restart' command\n# and 'run ... upto' (a resumed run stops at the same absolute timestep).\n\n# System settings\nunits real\nboundary p p p  # Periodic boundary conditions\n\n# definition of atoms, bonds, angles\natom_style full\nbond_style harmonic\nangle_style harmonic\n\n# definition of pair potentials\nspecial_bonds lj/coul 0.0 0.0 0.5\npair_style lj/cut/coul/long 10.0 10.0\npair_modify mix geometric tail yes\nkspace_style pppm 1.0e-5\n\n# read data file\nread_data ../siminp/data.lmp\n\n# definition of LJ parameters\npair_coeff    1    1     0.000000     0.000000  # Hw Hw\npair_coeff    2    2     0.163400     3.174270  # Ow-Ow\n\n# definition of partial charges\nset type 1 charge  0.44760000  # Hw\nset type 2 charge -0.89520000  # Ow\n\n############################################\n\n# remove energy hotspots\n# generous caps (10000 iterations / 100000 force evaluations): with 100 the\n# minimiser can stop before converging (N=16 needed 119); extra cost is seconds\nminimize 1.0e-4 1.0e-6 10000 100000\nreset_timestep 0\n\n# constrain water bonds and angles\nfix fSHAKE all shake 0.0001 20 0 b 1 a 1\n\n# remove Center of Mass movement every 100 steps\nfix fMOM all momentum 100 linear 1 1 1\n\n# define the neighbor list\nneighbor 2.0 bin\n\n# IMPORTANT: timestep and temperature and pressure\ntimestep 1.0\nvariable vTK equal 298.15\nvariable vPBAR equal 1.0\n\n# randomize velocities\nvelocity all create ${vTK} 1328400118\n\n# thermostat (solving the ODE)\nfix fTHERMO all nvt temp ${vTK} ${vTK} 100\n\n# print settings\nthermo 1000\nthermo_style custom step etotal ke pe temp press vol density\n# trajectory output\ndump dEQUI all custom 1000 equi.lammpstrj id element xu yu zu\ndump_modify dEQUI element H O sort id\n\n# restart files every 100 ps; '*' is replaced by the timestep, so no file is ever\n# overwritten (placed after minimize/reset_timestep: no file from the minimiser)\nrestart 100000 restart.*\n\n# equilibration\n# 250 ps (timestep counter was reset to 0 above)\nrun 250000 upto\n# write data file\nwrite_data data.after_eq.lmp\n\n# clean up\nundump dEQUI\n\n# production\n# 1 ns (until absolute timestep 1 250 000)\ndump dPROD all custom 1000 prod.lammpstrj id element xu yu zu\ndump_modify dPROD element H O sort id\nrun 1250000 upto\n\n# write data file\nwrite_data data.after_prod.lmp\n\n# clean up\nundump dPROD\nunfix fTHERMO\nunfix fMOM\nunfix fSHAKE\n",
+  "msd/travis_input_msd.txt": "! TRAVIS input file\n! Created with TRAVIS version compiled at Jun 17 2024 09:56:42\n! Source code version: Mar 5 2024\n! Input file written at Thu Feb  6 07:46:24 2025.\n! Use the advanced mode until the analysis selection menu (y/n)? [no]\n\n! Use these values (y) or enter different values (n)? [yes]\n\n! Update cell geometry in every time step (i.e., NPT ensemble) (y) or use fixed cell (n)? [yes]\nn\n! Create images of the structural formulas (y/n)? [no]\n\n! Accept these molecules (y) or change something (n)? [yes]\n\n! Which functions to compute (comma separated)?\nmsd\n! Use the advanced mode for the main part (y/n)? [no]\n\n! Enter the physical time distance between successive trajectory frames in fs: [0.5]\n1000\n! Which atom(s) to take from OM H2O (e.g. \"C1,C3-5,H\", \"*\"=all)? [#2]\n\n! Enter the correlation depth for this MSD (in trajectory frames): [2999]\n300\n! Add another observation (y/n)? [no]\n\n! Remove center of mass movement of the box (y/n)? [yes]\n\n! In which trajectory frame to start processing the trajectory? [1]\n\n! How many trajectory frames to read (from this position on)? [all]\n1000\n! Use every n-th read trajectory frame for the analysis: [1]\n\n"
+ }
+}

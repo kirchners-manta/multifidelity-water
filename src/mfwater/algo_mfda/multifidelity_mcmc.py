@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..argparser import constants
-from .forward_model import ForwardModel
+from ..md.forward_model import ForwardModel
 
 
 # eq=False: array fields make the generated __eq__/__hash__ unusable (ambiguous

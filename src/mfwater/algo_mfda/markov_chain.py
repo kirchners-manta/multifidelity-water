@@ -13,7 +13,7 @@ import h5py
 import numpy as np
 
 from ..argparser import constants
-from .forward_model import ForwardModel
+from ..md.forward_model import ForwardModel
 from .multifidelity_mcmc import (
     ChainState,
     MFDAConfig,
