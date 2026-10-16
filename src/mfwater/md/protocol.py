@@ -1,11 +1,14 @@
 """MD protocols: run lengths, output intervals and analysis settings.
 
 A protocol bundles everything that defines *what* one MD evaluation computes,
-independent of the algorithm that asks for it. Two protocols are registered:
+independent of the algorithm that asks for it. Three protocols are registered:
 
 ``mfda``
     The shortened protocol of the MFDA algorithm: 250 ps equilibration, 1 ns
     production, 1000 frames analysed with a correlation depth of 300 frames.
+``paper1-exact``
+    Bitwise replay of paper I: the paper-I LAMMPS template unchanged (no ``restart``,
+    no ``upto``), same TRAVIS settings as ``paper1``; cannot resume interrupted runs.
 ``paper1``
     The protocol of paper I (Froembgen et al., J. Chem. Phys. 164, 024504):
     1 ns equilibration, 2 ns production, TRAVIS correlation depth of 600 frames.
@@ -61,8 +64,11 @@ class MDProtocol:
     dump_every : int
         Interval of the trajectory dumps in steps (also the frame spacing of the
         TRAVIS analysis).
-    restart_every : int
-        Interval of the LAMMPS restart files in steps.
+    restart_every : int | None
+        Interval of the LAMMPS restart files in steps. None: the protocol has no
+        ``restart`` command and plain ``run <duration>`` commands (no ``upto``),
+        i.e. the paper-I input exactly. Such a protocol cannot resume: an
+        interrupted evaluation starts again in a new attempt directory.
     minimize_max_iter : int
         Iteration cap of the energy minimisation.
     minimize_max_eval : int
@@ -82,7 +88,7 @@ class MDProtocol:
     eq_end_step: int
     prod_end_step: int
     dump_every: int
-    restart_every: int
+    restart_every: int | None
     minimize_max_iter: int
     minimize_max_eval: int
     travis_depth: int | None
@@ -130,15 +136,25 @@ class MDProtocol:
                 f"minimize caps {[m[3:5] for m in mins]} != "
                 f"({self.minimize_max_iter}, {self.minimize_max_eval})"
             )
-        if len(restarts) != 1 or restarts[0][1] != str(self.restart_every):
-            problems.append(f"restart {restarts} != every {self.restart_every}")
-        if [r[1:] for r in runs] != [
-            [str(self.eq_end_step), "upto"],
-            [str(self.prod_end_step), "upto"],
-        ]:
+        if self.restart_every is None:
+            # bitwise-exact protocol: no restart command, plain `run <duration>`
+            if restarts:
+                problems.append(f"restart {restarts} but the protocol has none")
+            expected = [
+                [str(self.eq_end_step)],
+                [str(self.prod_end_step - self.eq_end_step)],
+            ]
+        else:
+            if len(restarts) != 1 or restarts[0][1] != str(self.restart_every):
+                problems.append(f"restart {restarts} != every {self.restart_every}")
+            expected = [
+                [str(self.eq_end_step), "upto"],
+                [str(self.prod_end_step), "upto"],
+            ]
+        if [r[1:] for r in runs] != expected:
             problems.append(
                 f"run commands {[' '.join(r) for r in runs]} != "
-                f"'run {self.eq_end_step} upto', 'run {self.prod_end_step} upto'"
+                f"{['run ' + ' '.join(e) for e in expected]}"
             )
         for dump_id in ("dEQUI", "dPROD"):
             cmd = dumps.get(dump_id)
@@ -182,8 +198,32 @@ PAPER1_PROTOCOL = MDProtocol(
     travis_depth=600,
 )
 
+#: Bitwise replay of paper I: the paper-I LAMMPS template itself (only the
+#: ``read_data`` path is rewritten, which is harmless), no ``restart`` command and
+#: no ``upto``. On Marvin, replayed trajectories were bitwise identical to paper I
+#: until the first ``restart`` write, which perturbs at round-off level. Hence no
+#: resume support: an interrupted evaluation starts again in a new attempt
+#: (old attempts are never deleted). Same TRAVIS settings as ``paper1``.
+PAPER1_EXACT_PROTOCOL = MDProtocol(
+    name="paper1-exact",
+    lammps_template=Path(__file__).resolve().parent.parent
+    / "algo_chemical_model"
+    / "data"
+    / "input.lmp",
+    eq_end_step=1_000_000,
+    prod_end_step=3_000_000,
+    dump_every=1000,
+    restart_every=None,
+    minimize_max_iter=100,
+    minimize_max_eval=1000,
+    travis_frames=ALL_FRAMES,
+    travis_depth=600,
+)
+
 #: Registered protocols by name.
-PROTOCOLS: dict[str, MDProtocol] = {p.name: p for p in (MFDA_PROTOCOL, PAPER1_PROTOCOL)}
+PROTOCOLS: dict[str, MDProtocol] = {
+    p.name: p for p in (MFDA_PROTOCOL, PAPER1_PROTOCOL, PAPER1_EXACT_PROTOCOL)
+}
 
 
 def get_protocol(protocol: str | MDProtocol) -> MDProtocol:

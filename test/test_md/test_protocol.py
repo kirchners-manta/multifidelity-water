@@ -20,6 +20,7 @@ from mfwater.md.pipeline import (
 from mfwater.md.protocol import (
     ALL_FRAMES,
     MFDA_PROTOCOL,
+    PAPER1_EXACT_PROTOCOL,
     PAPER1_PROTOCOL,
     PROTOCOLS,
     MDProtocol,
@@ -67,7 +68,7 @@ def marvin_input() -> list[str]:
 
 # ---------------------------------------------------------------- the registry
 def test_registry_and_lookup() -> None:
-    assert set(PROTOCOLS) == {"mfda", "paper1"}
+    assert set(PROTOCOLS) == {"mfda", "paper1", "paper1-exact"}
     assert get_protocol("mfda") is MFDA_PROTOCOL
     assert get_protocol(PAPER1_PROTOCOL) is PAPER1_PROTOCOL
     with pytest.raises(ValueError, match="Unknown MD protocol"):
@@ -205,7 +206,7 @@ def _commands(text: str) -> list[str]:
         ("travis_input_msd_orthoboxy.txt", "input_orthoboxy.txt"),
     ],
 )
-@pytest.mark.parametrize("protocol", [PAPER1_PROTOCOL])
+@pytest.mark.parametrize("protocol", [PAPER1_PROTOCOL, PAPER1_EXACT_PROTOCOL])
 def test_paper1_travis_inputs_equal_paper_i_post_processing(
     template: str, reference: str, protocol: MDProtocol
 ) -> None:
@@ -301,3 +302,58 @@ def test_md_forward_model_with_paper1_protocol(
 def test_unknown_protocol_in_forward_model(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Unknown MD protocol"):
         MDForwardModel(tmp_path, protocol="nope")
+
+
+# ------------------------------------------------------------------ paper1-exact
+def test_paper1_exact_input_is_the_paper_i_template(tmp_path: Path) -> None:
+    """Only the substituted values and the ``read_data`` path differ from input.lmp."""
+    p = PAPER1_EXACT_PROTOCOL
+    assert p.restart_every is None and p.name == "paper1-exact"
+    template = (TEMPLATE_DIR / "input.lmp").read_text()
+    assert p.lammps_template == TEMPLATE_DIR / "input.lmp"
+    out = tmp_path / "input.lmp"
+    write_lammps_input(p.lammps_template, out, THETA, int(MARVIN["seed"]), protocol=p)
+    changed = [
+        (a, b)
+        for a, b in zip(template.splitlines(), out.read_text().splitlines())
+        if a != b
+    ]
+    keys = ("pair_coeff", "set type", "velocity all create", "read_data")
+    assert changed and all(a.strip().startswith(keys) for a, _ in changed)
+    text = out.read_text()
+    assert "restart" not in text.replace("# restart", "")
+    assert "run 1000000\n" in text and "run 2000000\n" in text
+    assert "upto" not in text
+    assert "read_data ../siminp/data.lmp" in text
+
+
+def test_paper1_exact_cannot_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interrupted evaluation starts fresh in a new attempt; no restart lookup."""
+    from mfwater.md import pipeline
+
+    with pytest.raises(ValueError, match="no restart files"):
+        write_resume_input(
+            tmp_path / "r.lmp", tmp_path / "x", 5, protocol=PAPER1_EXACT_PROTOCOL
+        )
+    calls: list[Any] = []
+    monkeypatch.setattr(pipeline.shutil, "which", lambda p: f"/usr/bin/{p}")
+    monkeypatch.setattr(pipeline.subprocess, "run", make_fake_run(calls))
+    model = MDForwardModel(tmp_path, protocol="paper1-exact")
+
+    def no_lookup(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("restart lookup for a protocol without restarts")
+
+    monkeypatch.setattr(model, "_resume_point", no_lookup)
+    # an old, unfinished attempt with a restart-like file must be ignored
+    model(100, THETA)
+    first = model.last_attempt_dir
+    assert first is not None
+    (first / "msd" / "msdiff_out.csv").unlink()  # looks interrupted
+    (first / "simout" / "restart.500000").write_text("x")
+    model(100, THETA)
+    second = model.last_attempt_dir
+    assert second is not None and second != first and first.exists()
+    assert not (second / "resume_from.txt").exists()
+    assert (first / "simout" / "restart.500000").exists()  # never deleted

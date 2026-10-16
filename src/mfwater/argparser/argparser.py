@@ -563,9 +563,9 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         "--protocol",
         type=str,
         dest="protocol",
-        choices=["paper1", "mfda"],
+        choices=["paper1", "paper1-exact", "mfda"],
         default="paper1",
-        help="R|MD protocol of 'mfmc-run': 'paper1' (1 ns equilibration + 2 ns production, as paper I) or 'mfda' (shortened).",
+        help="R|MD protocol of 'mfmc-run': 'paper1' (1 ns equilibration + 2 ns production, as paper I, resumable via restart files), 'paper1-exact' (bitwise replay of paper I: no restart command, no resume) or 'mfda' (shortened).",
     )
     p.add_argument(
         "--total-cpus",

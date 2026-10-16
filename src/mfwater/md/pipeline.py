@@ -242,9 +242,12 @@ def write_resume_input(
     Raises
     ------
     ValueError
-        If ``restart_step`` is not in ``[0, protocol.prod_end_step)`` (``run
+        If the protocol has no restart files (``restart_every`` is None) or
+        ``restart_step`` is not in ``[0, protocol.prod_end_step)`` (``run
         upto`` with a target in the past is an error in LAMMPS).
     """
+    if protocol.restart_every is None:
+        raise ValueError(f"Protocol {protocol.name!r} has no restart files to resume.")
     eq_end, prod_end = protocol.eq_end_step, protocol.prod_end_step
     if not 0 <= restart_step < prod_end:
         raise ValueError(
@@ -947,7 +950,13 @@ class MDForwardModel:
         # Resume only if the newest attempt was interrupted after a restart file;
         # decided before the new attempt directory exists.
         newest = self._newest_attempt(base)
-        point = None if newest is None else self._resume_point(newest)
+        # A protocol without restart files cannot resume: always start fresh in a
+        # new attempt (the old attempts stay untouched).
+        point = (
+            None
+            if newest is None or self.protocol.restart_every is None
+            else self._resume_point(newest)
+        )
 
         attempt = self._new_attempt_dir(n_molecules, key_hash(key))
         self.last_attempt_dir = attempt
