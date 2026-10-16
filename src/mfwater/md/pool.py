@@ -26,11 +26,14 @@ Claiming protocol (per evaluation directory ``<cache>/N{n}/{key_hash}/``)::
 * A job that is resubmitted after a crash has to wait ``stale_timeout`` for its
   own old claims, unless the timeout is lowered.
 
-Assumptions that are NOT verified:
+Verified on Marvin (2026-10-15, two nodes):
 
 * ``O_CREAT | O_EXCL`` is atomic between processes on *different nodes* of the
-  shared (Lustre) file system. This is believed to hold on modern Lustre but has
-  not been tested here; test it on the cluster before relying on it.
+  shared Lustre file system (2 jobs on node083 and node087, 60 tasks, each
+  computed exactly once).
+
+Assumptions that are NOT verified:
+
 * Clocks of all nodes and the file system agree to well within
   ``stale_timeout`` (mtimes are compared with ``time.time()`` of the checking
   node).
@@ -351,8 +354,8 @@ def run_pool(
     docstring); tasks with ``result.json`` are skipped, tasks with a live claim
     of another job are left alone.
 
-    ``O_EXCL`` atomicity across Lustre nodes is assumed, not verified (see the
-    module docstring).
+    ``O_EXCL`` atomicity across Lustre nodes was verified on Marvin (2026-10-15,
+    two nodes; see the module docstring).
 
     Parameters
     ----------

@@ -515,3 +515,16 @@ def test_replay_from_calibration(tmp_path: Path) -> None:
             assert np.array_equal(f["models"][name][:], ref["models"][name][:])
         assert f["models/model_1"].attrs["n_molecules"] == 1024
         assert f["models/model_1/diffusion_coeff"].shape == (10,)
+
+
+def test_protocol_paper1_exact_and_msdiff_cmd_in_manifest(tmp_path: Path) -> None:
+    """The exact protocol is selectable; msdiff_cmd is stored but not compared."""
+    wd = tmp_path / "run"
+    base = ["--protocol", "paper1-exact", "--stop-after", "calibration"]
+    console_entry_point(argv(wd, *base, "--msdiff-cmd", "/some/msdiff"))
+    manifest = json.loads((wd / "manifest.json").read_text())
+    assert manifest["protocol"] == "paper1-exact"
+    assert manifest["msdiff_cmd"] == "/some/msdiff"
+    assert manifest["msdiff_version"].startswith("unknown (")
+    # another msdiff command is accepted on restart (stored only)
+    assert console_entry_point(argv(wd, *base, "--msdiff-cmd", "/other/msdiff")) == 0

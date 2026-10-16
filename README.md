@@ -446,7 +446,7 @@ Workflow:
 All MD runs of a phase go through one evaluation pool: concurrent processes on `total_cpus` cores, largest system first, never more ranks than `total_cpus`.
 
 Settings (TOML keys = long option names; the TOML file overrides the command line; defaults in brackets):
-- `molecules` (strictly descending), `evals` (calibration evaluations per model, >= 2), `budgets` (core-seconds, the unit of the cost `w`), `params` [`lj`] (`lj`, `q`, `lj-q`; paper I never perturbs both), `orthoboxy`, `protocol` [`paper1`] (`paper1` or `mfda`), `seed` [random, printed and stored], `forward_model` [`dummy`] (`md` for real runs; the dummy is a cheap correlated stand-in for tests), `lammps_cmd`, `rmse_cost` [`calibration`].
+- `molecules` (strictly descending), `evals` (calibration evaluations per model, >= 2), `budgets` (core-seconds, the unit of the cost `w`), `params` [`lj`] (`lj`, `q`, `lj-q`; paper I never perturbs both), `orthoboxy`, `protocol` [`paper1`] (`paper1`, `paper1-exact` or `mfda`, see below), `seed` [random, printed and stored], `forward_model` [`dummy`] (`md` for real runs; the dummy is a cheap correlated stand-in for tests), `lammps_cmd`, `msdiff_cmd` [`msdiff`], `rmse_cost` [`calibration`].
 - `total_cpus` [`$SLURM_NTASKS`, else the ranks of the largest system]: cores the pool may use. `ncpu_override`: table `N = ranks` replacing `calc_cpus`, e.g. `{1024 = 6, 512 = 4}` (on the command line `--ncpu-override 1024=6 512=4`). Neither is compared on restart; the ranks are not part of the cache key.
 - `stop_after = "calibration"`: stop after selection and print the table (models, rho, sigma, w, number of excluded costs, selected set, gamma, `m*` and expected RMSE per budget; a budget that is too small is listed as `NO ALLOCATION` instead of raising). Not compared on restart: remove it to continue.
 - `calibration_from`: paper-I-format calibration file that replaces phase 1 (sigma, rho and `w` from its attributes). `molecules` and `evals` may then be omitted.
@@ -459,7 +459,7 @@ Sampling: calibration samples come from `default_rng([seed, 0])`, the samples of
 
 Run directory:
 ```
-manifest.json                 settings, seed, algorithm/package version, git hash, msdiff version
+manifest.json                 settings, seed, algorithm/package version, git hash, msdiff command and version
 config.toml                   copy of the -c file (changed content is kept as config_1.toml, ...)
 cache/N{n}/{key_hash}/        evaluation cache and MD output (result.json, attempt_k/, claim files)
 calibration.hdf5              phase 1, paper-I format
@@ -474,9 +474,16 @@ HDF5 schema (names as in paper I; sort models by the attribute `n_molecules`, ne
 - `D` is stored in 1e-12 m^2/s (the paper-I unit) as float64 (paper I: float32).
 - Evaluations with an incomplete cost (a killed attempt has no `Total wall time`) still count for D but are excluded from `w`; the number per model is stored (`n_cost_excluded`) and printed at the end of each phase. If all evaluations of a model are excluded, the run stops with an error.
 
-**Restart.** Resubmit the same job script. Finished files are never rewritten, evaluations with a `result.json` are never repeated and interrupted MD runs resume from their LAMMPS restart files. The manifest is compared (strict: algorithm version, forward model, box shape, protocol, molecules, evals, budgets, params, seed, `rmse_cost`, hashes of replay/calibration files). Stored but not compared: `total_cpus`, `ncpu_override`, `lammps_cmd`, `print_level`, `claim_timeout`, `stop_after`. A different git hash, package version or `msdiff --version` only prints a warning (the msdiff version changes D).
+**Protocols.**
+- `paper1`: paper-I LAMMPS input (1 ns + 2 ns, minimiser caps 100/1000) plus `restart 100000` and `run ... upto`, so that interrupted runs resume from restart files. TRAVIS reads **all** frames (empty answer to "How many trajectory frames to read", 2001 frames incl. frame 0) with depth 600; the non-comment lines of the generated TRAVIS inputs equal the paper-I post-processing inputs. (The shared template `travis_input_msd.txt` says 2000 frames: `travis_frames = None` in a protocol keeps that answer, the sentinel `ALL_FRAMES` writes the blank one.)
+- `paper1-exact`: bitwise replay of paper I. The LAMMPS template is the unchanged paper-I `input.lmp` (no `restart`, no `upto`; only the `read_data` path is rewritten, which is harmless). Replayed trajectories were bitwise identical to paper I until the first `restart` write, which perturbs at round-off level. Hence **no resume**: an interrupted evaluation starts again in a new `attempt_{k}` (old attempts are kept, never deleted). TRAVIS as in `paper1`.
+- `mfda`: shortened protocol of the MFDA algorithm.
 
-**Several jobs on one run directory.** Submit the same job script k times (`for i in 1 2 3; do sbatch run.sh; done`). The jobs claim evaluations with files in `cache/` (`O_EXCL`, heartbeat) and share the work; the first job writes the manifest, the others compare. A job that has nothing left to claim while others still compute prints a message and exits with code 0; the job that completes the last evaluation of a phase continues with the next phase. Output files are written under a temporary name and linked into place; if another job was faster, the existing file is verified to be identical. A job that died leaves a claim that becomes stale after `claim_timeout`; resubmit afterwards to take it over. Whether `O_EXCL` is atomic between nodes of the Lustre file system is assumed, not verified.
+**msdiff.** `msdiff_cmd` selects the executable (name or path). The command and the output of `<msdiff_cmd> --version` (builds without that flag give `unknown (<path>)`) are stored in the manifest (a changed version warns on restart) and in every `result.json` (`msdiff_cmd`, `msdiff_version`), because the msdiff version changes D. Both `msdiff_out.csv` layouts (with and without the leading `Species` column) are read.
+
+**Restart.** Resubmit the same job script. Finished files are never rewritten, evaluations with a `result.json` are never repeated and interrupted MD runs resume from their LAMMPS restart files (not with `paper1-exact`). The manifest is compared (strict: algorithm version, forward model, box shape, protocol, molecules, evals, budgets, params, seed, `rmse_cost`, hashes of replay/calibration files). Stored but not compared: `total_cpus`, `ncpu_override`, `lammps_cmd`, `msdiff_cmd`, `print_level`, `claim_timeout`, `stop_after`. A different git hash, package version or `msdiff --version` only prints a warning (the msdiff version changes D).
+
+**Several jobs on one run directory.** Submit the same job script k times (`for i in 1 2 3; do sbatch run.sh; done`). The jobs claim evaluations with files in `cache/` (`O_EXCL`, heartbeat) and share the work; the first job writes the manifest, the others compare. A job that has nothing left to claim while others still compute prints a message and exits with code 0; the job that completes the last evaluation of a phase continues with the next phase. Output files are written under a temporary name and linked into place; if another job was faster, the existing file is verified to be identical. A job that died leaves a claim that becomes stale after `claim_timeout`; resubmit afterwards to take it over. `O_EXCL` atomicity between nodes of the Lustre file system was verified on Marvin (2026-10-15, two nodes, 60 tasks, each computed exactly once).
 
 **Job script.**
 ```
@@ -484,16 +491,17 @@ mfwater -a mfmc-jobscript --cluster marvin -c run.toml [--jobscript run.sh]
 ```
 `--ntasks = total_cpus` (required in `run.toml`, must fit on one node), the script calls `mfwater -a mfmc-run -c <absolute path of run.toml>` (the cluster profile is shared with `mfda-jobscript`). The default output is `run-mfmc-<cluster>.sh`; an existing file is never overwritten.
 
-Example `run.toml` (replay of the paper-I calibration `m6_e10_c_lj` and its `oms_1e5` samples):
+Example `run.toml` (T3: bitwise replay of the paper-I calibration `m6_e10_c_lj` and its `oms_1e5` samples on Marvin):
 ```toml
 forward_model = "md"
-workdir = "./replay_m6_e10_c_lj"
-protocol = "paper1"
+workdir = "./t3_m6_e10_c_lj"
+protocol = "paper1-exact"
+msdiff_cmd = "/lustre/mlnvme/data/tomfroe_hpc-myscratch/mfmc_forward_tests/2026-10-15/msdiff_versions/v_801fe9c/bin/msdiff"
 params = "lj"
-total_cpus = 16
-replay_from = "/lustre/.../m6_e10_c_lj/m6_e10_c_lj.hdf5"
+total_cpus = 96
+replay_from = "/lustre/mlnvme/data/tomfroe_hpc-myscratch/mfmc_water/m6_e10_c_lj/m6_e10_c_lj.hdf5"
 budgets = [1e5]
-replay_performance_from = {"1e5" = "/lustre/.../m6_e10_c_lj/oms_1e5/m6_e10_c_lj_oms.hdf5"}
+replay_performance_from = {"1e5" = "/lustre/mlnvme/data/tomfroe_hpc-myscratch/mfmc_water/m6_e10_c_lj/oms_1e5/m6_e10_c_lj_oms.hdf5"}
 replay_use_oms_allocation = true
 ncpu_override = {1024 = 6, 512 = 4, 256 = 2, 128 = 2, 64 = 1, 32 = 1}
 ```
