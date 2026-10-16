@@ -354,6 +354,8 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
             "mfda-smoke",
             "mfda-ncpu",
             "mfda-jobscript",
+            "mfmc-run",
+            "mfmc-jobscript",
         ],
         dest="algorithm",
         help="R|Which algorithm to execute.",
@@ -532,7 +534,7 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         type=str,
         dest="cluster",
         default=None,
-        help="R|Built-in cluster profile (e.g. 'marvin') for 'mfda-jobscript'.",
+        help="R|Built-in cluster profile (e.g. 'marvin') for 'mfda-jobscript' and 'mfmc-jobscript'.",
     )
     p.add_argument(
         "--cluster-file",
@@ -540,14 +542,94 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         dest="cluster_file",
         metavar="CLUSTER_FILE",
         default=None,
-        help="R|Cluster profile file (TOML) for 'mfda-jobscript', alternative to --cluster.",
+        help="R|Cluster profile file (TOML) for 'mfda-jobscript' and 'mfmc-jobscript', alternative to --cluster.",
     )
     p.add_argument(
         "--jobscript",
         type=str,
         dest="jobscript",
         default=None,
-        help="R|Output file of 'mfda-jobscript' (default: run-mfda-<cluster>.sh). An existing file is never overwritten.",
+        help="R|Output file of 'mfda-jobscript' and 'mfmc-jobscript' (default: run-mfda-<cluster>.sh or run-mfmc-<cluster>.sh). An existing file is never overwritten.",
+    )
+    p.add_argument(
+        "--budgets",
+        type=float,
+        dest="budgets",
+        nargs="+",
+        default=None,
+        help="R|Budgets of 'mfmc-run' in core-seconds (space separated); the performance phase is run for each.",
+    )
+    p.add_argument(
+        "--protocol",
+        type=str,
+        dest="protocol",
+        choices=["paper1", "mfda"],
+        default="paper1",
+        help="R|MD protocol of 'mfmc-run': 'paper1' (1 ns equilibration + 2 ns production, as paper I) or 'mfda' (shortened).",
+    )
+    p.add_argument(
+        "--total-cpus",
+        type=int,
+        dest="total_cpus",
+        default=None,
+        action=action_not_less_than(1),
+        help="R|Cores that 'mfmc-run' may use for concurrent MD evaluations (default: $SLURM_NTASKS, else the ranks of the largest system). Required by 'mfmc-jobscript'.",
+    )
+    p.add_argument(
+        "--ncpu-override",
+        type=str,
+        dest="ncpu_override",
+        nargs="+",
+        default=None,
+        metavar="N=RANKS",
+        help="R|MPI ranks per number of molecules for 'mfmc-run', e.g. '1024=6 512=4' (TOML: ncpu_override = {1024 = 6, 512 = 4}). Others use calc_cpus. Not part of the cache key.",
+    )
+    p.add_argument(
+        "--stop-after",
+        type=str,
+        dest="stop_after",
+        choices=["calibration"],
+        default=None,
+        help="R|'mfmc-run': stop after the calibration and model selection and print the table (models, rho, sigma, w, selection, gamma, m* per budget).",
+    )
+    p.add_argument(
+        "--calibration-from",
+        type=is_file,
+        dest="calibration_from",
+        metavar="HDF5_FILE",
+        default=None,
+        help="R|'mfmc-run': skip the calibration and take sigma, rho and w from this paper-I-format calibration file.",
+    )
+    p.add_argument(
+        "--replay-from",
+        type=is_file,
+        dest="replay_from",
+        metavar="HDF5_FILE",
+        default=None,
+        help="R|'mfmc-run': use the stored parameters and seeds (/models/lj_params, charges, seeds) of this paper-I-format calibration file instead of drawing samples; the MD runs are done again.",
+    )
+    p.add_argument(
+        "--replay-performance-from",
+        type=str,
+        dest="replay_performance_from",
+        nargs="+",
+        default=None,
+        metavar="BUDGET=OMS_FILE",
+        help="R|'mfmc-run': per budget a paper-I-format performance file whose stored parameters and seeds are evaluated again, e.g. '1e5=/path/oms_1e5/x_oms.hdf5' (TOML: replay_performance_from = {\"1e5\" = \"/path\"}).",
+    )
+    p.add_argument(
+        "--replay-use-oms-allocation",
+        action="store_true",
+        dest="replay_use_oms_allocation",
+        default=False,
+        help="R|'mfmc-run': use the models and n_evals of the replayed performance files instead of the computed allocation. Without this flag a difference is an error.",
+    )
+    p.add_argument(
+        "--claim-timeout",
+        type=float,
+        dest="claim_timeout",
+        default=1800.0,
+        help="R|'mfmc-run': seconds without heartbeat after which the claim of another (probably dead) job on an evaluation may be taken over.",
     )
     p.add_argument(
         "--version",
@@ -609,6 +691,9 @@ def config_to_argv(p: argparse.ArgumentParser, options: dict[str, Any]) -> list[
             if value:
                 tokens.append(flag)
             continue
+        if isinstance(value, dict) and action.nargs in ("+", "*"):
+            # a TOML table becomes KEY=VALUE tokens (e.g. ncpu_override = {1024 = 6})
+            value = [f"{k}={v}" for k, v in value.items()]
         values = value if isinstance(value, list) else [value]
         if isinstance(value, bool) or any(isinstance(v, (bool, dict)) for v in values):
             p.error(f"invalid value for option '{key}' in configuration file")
