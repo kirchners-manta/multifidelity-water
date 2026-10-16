@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 #: Directory with the LAMMPS templates of the protocols.
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -31,6 +32,12 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 #: convention (30 %): the long-lag end of an MSD is averaged over few windows
 #: and noisy, so only the first 30 % of the trajectory length is used.
 MFDA_MSD_DEPTH_FRACTION = 0.30
+
+
+#: Explicit value of ``MDProtocol.travis_frames`` for "read all trajectory frames".
+#: TRAVIS then gets an empty answer (its default ``[all]``), as in the paper-I
+#: post-processing inputs. ``None`` means something else: keep the template's answer.
+ALL_FRAMES: Final = "all"
 
 
 @dataclass(frozen=True)
@@ -63,10 +70,11 @@ class MDProtocol:
     travis_depth : int | None
         MSD correlation depth in frames written into the TRAVIS input, or None
         to keep the answer of the TRAVIS template.
-    travis_frames : int | None
-        Number of trajectory frames TRAVIS reads, or None to keep the answer of
-        the TRAVIS template (paper I: 2000 frames for cubic boxes, all frames
-        for OrthoBoXY).
+    travis_frames : int | str | None
+        Number of trajectory frames TRAVIS reads. ``ALL_FRAMES`` writes an empty
+        answer (TRAVIS default: all frames, 2001 including frame 0 for the paper-I
+        run, as in the paper-I post-processing inputs); None keeps the answer of
+        the TRAVIS template (the cubic template says 2000).
     """
 
     name: str
@@ -78,7 +86,22 @@ class MDProtocol:
     minimize_max_iter: int
     minimize_max_eval: int
     travis_depth: int | None
-    travis_frames: int | None
+    travis_frames: int | str | None
+
+    def __post_init__(self) -> None:
+        """Validate ``travis_frames``.
+
+        Raises
+        ------
+        ValueError
+            If ``travis_frames`` is neither None, ``ALL_FRAMES`` nor a positive int.
+        """
+        f = self.travis_frames
+        if not (f is None or f == ALL_FRAMES or (isinstance(f, int) and f > 0)):
+            raise ValueError(
+                f"travis_frames must be None, {ALL_FRAMES!r} or a positive integer, "
+                f"got {f!r}."
+            )
 
     def validate_template(self) -> None:
         """Check that the LAMMPS template agrees with the numbers of the protocol.
@@ -144,8 +167,8 @@ MFDA_PROTOCOL = MDProtocol(
 )
 
 #: Paper-I protocol: 1 ns + 2 ns (the paper-I ``run 2000000`` after the first run
-#: ends at absolute step 3 000 000), caps 100/1000, depth 600; the frame count
-#: stays that of the paper-I TRAVIS templates.
+#: ends at absolute step 3 000 000), caps 100/1000, depth 600, all frames read
+#: (the paper-I post-processing inputs leave the frame answer blank).
 PAPER1_PROTOCOL = MDProtocol(
     name="paper1",
     lammps_template=DATA_DIR / "input_paper1.lmp",
@@ -155,7 +178,7 @@ PAPER1_PROTOCOL = MDProtocol(
     restart_every=100_000,
     minimize_max_iter=100,
     minimize_max_eval=1000,
-    travis_frames=None,
+    travis_frames=ALL_FRAMES,
     travis_depth=600,
 )
 

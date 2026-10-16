@@ -18,6 +18,7 @@ from mfwater.md.pipeline import (
     write_resume_input,
 )
 from mfwater.md.protocol import (
+    ALL_FRAMES,
     MFDA_PROTOCOL,
     PAPER1_PROTOCOL,
     PROTOCOLS,
@@ -97,7 +98,7 @@ def test_paper1_protocol_values() -> None:
     # 1 ns equilibration, then 2 ns more: absolute step 3 000 000
     assert (p.eq_end_step, p.prod_end_step) == (1_000_000, 3_000_000)
     assert (p.minimize_max_iter, p.minimize_max_eval) == (100, 1000)
-    assert p.travis_depth == 600 and p.travis_frames is None
+    assert p.travis_depth == 600 and p.travis_frames == ALL_FRAMES
 
 
 @pytest.mark.parametrize("protocol", list(PROTOCOLS.values()), ids=lambda p: p.name)
@@ -187,13 +188,48 @@ def test_paper1_input_matches_paper_i_marvin_input(tmp_path: Path) -> None:
     assert "velocity all create ${vTK} 90203\n" in new
 
 
-def test_paper1_travis_inputs_are_the_paper_i_templates() -> None:
-    for name in ("travis_input_msd.txt", "travis_input_msd_orthoboxy.txt"):
-        text = (TEMPLATE_DIR / name).read_text()
-        patched = patch_travis_input(
-            text, PAPER1_PROTOCOL.travis_frames, PAPER1_PROTOCOL.travis_depth
-        )
-        assert patched == text, name  # 2000 frames (cubic) / all (ortho), depth 600
+def _commands(text: str) -> list[str]:
+    """Return the non-comment lines of a TRAVIS input (comments start with '!')."""
+    # Whitespace at line ends and trailing blank lines are normalised: the
+    # pre-commit hooks edit the stored copies of the paper-I inputs.
+    lines = [ln.rstrip() for ln in text.split("\n") if not ln.startswith("!")]
+    while lines and not lines[-1]:
+        lines.pop()
+    return lines
+
+
+@pytest.mark.parametrize(
+    "template, reference",
+    [
+        ("travis_input_msd.txt", "input_normal.txt"),
+        ("travis_input_msd_orthoboxy.txt", "input_orthoboxy.txt"),
+    ],
+)
+@pytest.mark.parametrize("protocol", [PAPER1_PROTOCOL])
+def test_paper1_travis_inputs_equal_paper_i_post_processing(
+    template: str, reference: str, protocol: MDProtocol
+) -> None:
+    """The non-comment lines equal the inputs used for paper I (all frames, depth 600).
+
+    The reference files are the paper-I post-processing inputs
+    (``scripts/input_normal.txt`` and ``input_orthoboxy.txt`` of the paper-I data).
+    The repository template differs for cubic boxes: it asks for 2000 frames.
+    """
+    text = (TEMPLATE_DIR / template).read_text()
+    patched = patch_travis_input(text, protocol.travis_frames, protocol.travis_depth)
+    ref = (Path(__file__).parents[1] / "data" / "travis" / reference).read_text()
+    assert _commands(patched) == _commands(ref)
+
+
+def test_all_frames_sentinel_is_not_none() -> None:
+    text = (TEMPLATE_DIR / "travis_input_msd.txt").read_text()
+    assert patch_travis_input(text, None, None) == text  # keeps the template's 2000
+    assert "2000" in _commands(text)
+    assert "2000" not in _commands(patch_travis_input(text, ALL_FRAMES, None))
+    with pytest.raises(ValueError, match="travis_frames"):
+        dataclasses.replace(PAPER1_PROTOCOL, travis_frames="some")
+    with pytest.raises(ValueError, match="travis_frames"):
+        dataclasses.replace(PAPER1_PROTOCOL, travis_frames=0)
 
 
 def test_patch_travis_input_none_keeps_template() -> None:
@@ -256,10 +292,10 @@ def test_md_forward_model_with_paper1_protocol(
     text = (attempt / "siminp" / "input.lmp").read_text()
     assert "run 1000000 upto" in text and "run 3000000 upto" in text
     assert "minimize 1.0e-4 1.0e-6 100 1000" in text
-    name = "travis_input_msd_orthoboxy.txt" if orthoboxy else "travis_input_msd.txt"
-    assert (attempt / "msd" / "travis_input_msd.txt").read_text() == (
-        TEMPLATE_DIR / name
-    ).read_text()
+    name = "input_orthoboxy.txt" if orthoboxy else "input_normal.txt"
+    ref = (Path(__file__).parents[1] / "data" / "travis" / name).read_text()
+    written = (attempt / "msd" / "travis_input_msd.txt").read_text()
+    assert _commands(written) == _commands(ref)  # as the paper-I inputs
 
 
 def test_unknown_protocol_in_forward_model(tmp_path: Path) -> None:

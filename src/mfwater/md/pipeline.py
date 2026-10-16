@@ -42,7 +42,7 @@ from .forward_model import (
     key_hash,
 )
 from .lammps_log import parse_lammps_log
-from .protocol import MFDA_PROTOCOL, MDProtocol, get_protocol
+from .protocol import ALL_FRAMES, MFDA_PROTOCOL, MDProtocol, get_protocol
 from .system import calc_box_size, calc_cpus
 
 #: Directory with the paper-I templates (LAMMPS input, force field, TRAVIS input).
@@ -443,7 +443,7 @@ def _set_answers(lines: list[str], prompt: str, answer: str) -> int:
 
 def patch_travis_input(
     template: str,
-    frames: int | None = MFDA_PROTOCOL.travis_frames,
+    frames: int | str | None = MFDA_PROTOCOL.travis_frames,
     depth: int | None = MFDA_PROTOCOL.travis_depth,
 ) -> str:
     """Set the number of frames and the correlation depth of a TRAVIS input.
@@ -458,8 +458,9 @@ def patch_travis_input(
     ----------
     template : str
         Content of the TRAVIS input template.
-    frames : int | None, optional
-        Trajectory frames to read; None keeps the answer of the template.
+    frames : int | str | None, optional
+        Trajectory frames to read; ``ALL_FRAMES`` writes an empty answer (TRAVIS
+        default: all frames); None keeps the answer of the template.
     depth : int | None, optional
         MSD correlation depth in frames; None keeps the answer of the template.
 
@@ -477,7 +478,10 @@ def patch_travis_input(
     lines = template.split("\n")
     if (
         frames is not None
-        and _set_answers(lines, TRAVIS_FRAMES_PROMPT, str(frames)) != 1
+        and _set_answers(
+            lines, TRAVIS_FRAMES_PROMPT, "" if frames == ALL_FRAMES else str(frames)
+        )
+        != 1
     ):
         raise ValueError(
             f"TRAVIS template needs exactly one {TRAVIS_FRAMES_PROMPT!r} prompt."
