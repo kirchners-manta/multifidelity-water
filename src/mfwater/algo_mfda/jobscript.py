@@ -162,6 +162,7 @@ def render_jobscript(
     job_name: str,
     run_toml: Path,
     set_lammps_cmd: bool,
+    template: str | None = None,
 ) -> str:
     """Fill the job script template of the scheduler of ``profile``.
 
@@ -178,19 +179,24 @@ def render_jobscript(
     set_lammps_cmd : bool
         Whether to add ``--lammps-cmd`` from the profile (``False`` if the run
         TOML sets ``lammps_cmd`` itself).
+    template : str, optional
+        File name of the template in ``data/``. Default: the MFDA template of the
+        scheduler (``jobscript_<scheduler>.sh.template``). The MFMC job script uses
+        ``jobscript_<scheduler>_mfmc.sh.template``.
 
     Returns
     -------
     str
         The job script.
     """
-    template = (_DATA_DIR / f"jobscript_{profile.scheduler}.sh.template").read_text()
+    template_name = template or f"jobscript_{profile.scheduler}.sh.template"
+    text = (_DATA_DIR / template_name).read_text()
     option = ""
     if set_lammps_cmd:
         option = f" \\\n    --lammps-cmd {shlex.quote(profile.lammps_cmd)}"
     # plain replace (not str.format): the setup snippet contains shell braces
     return (
-        template.replace("@SBATCH_HEADER@", _slurm_header(profile, ntasks, job_name))
+        text.replace("@SBATCH_HEADER@", _slurm_header(profile, ntasks, job_name))
         .replace("@ENVIRONMENT_SETUP@", profile.setup)
         .replace("@RUN_TOML@", shlex.quote(str(run_toml)))
         .replace("@LAMMPS_OPTION@", option)
