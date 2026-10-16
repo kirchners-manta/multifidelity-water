@@ -300,6 +300,9 @@ class CachedForwardModel:
             "cpu_time_s": None,
             "n_mpi": None,
             "n_mpi_requested": None,
+            # msdiff changes D between versions: record which one produced the value
+            "msdiff_cmd": getattr(self.model, "msdiff_cmd", None),
+            "msdiff_version": getattr(self.model, "msdiff_version", None),
             "attempt_dir": None if attempt is None else str(attempt),
             "attempt_dirs": None if attempts is None else [str(a) for a in attempts],
         }

@@ -270,10 +270,10 @@ def test_msdiff_version_change_warns(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     wd = tmp_path / "run"
-    monkeypatch.setattr(run_mod, "_msdiff_version", lambda: "msdiff 0.3.2")
+    monkeypatch.setattr(run_mod, "query_msdiff_version", lambda cmd: "msdiff 0.3.2")
     console_entry_point(argv(wd, "--stop-after", "calibration"))
     capsys.readouterr()
-    monkeypatch.setattr(run_mod, "_msdiff_version", lambda: "msdiff 0.1.0")
+    monkeypatch.setattr(run_mod, "query_msdiff_version", lambda cmd: "msdiff 0.1.0")
     console_entry_point(argv(wd, "--stop-after", "calibration"))
     assert "Warning: msdiff_version differs" in capsys.readouterr().out
 

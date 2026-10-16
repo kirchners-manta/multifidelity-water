@@ -118,6 +118,8 @@ class MFMCRunConfig:
         Cost basis of ``mfmc_error`` and ``gamma``: ``calibration`` or ``performance``.
     lammps_cmd : str
         LAMMPS command template (``{ncpu}``, ``{input}``).
+    msdiff_cmd : str
+        msdiff executable (name or path); stored (with its version), not compared.
     print_level : int
         Stored only.
     claim_timeout : float
@@ -142,6 +144,7 @@ class MFMCRunConfig:
     forward_model: str = "dummy"
     rmse_cost: str = "calibration"
     lammps_cmd: str = "mpirun -np {ncpu} lmp -i {input}"
+    msdiff_cmd: str = "msdiff"
     print_level: int = 0
     claim_timeout: float = 1800.0
 
@@ -355,6 +358,7 @@ def build_config(args: argparse.Namespace) -> MFMCRunConfig:
         forward_model=args.forward_model,
         rmse_cost=args.rmse_cost or "calibration",
         lammps_cmd=args.lammps_cmd,
+        msdiff_cmd=args.msdiff_cmd,
         print_level=int(args.print_level),
         claim_timeout=float(args.claim_timeout),
     )

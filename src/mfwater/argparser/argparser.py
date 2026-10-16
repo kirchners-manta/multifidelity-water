@@ -522,6 +522,13 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         help="R|Command template to run LAMMPS (placeholders {ncpu} and {input}), only used with '--forward-model md'.",
     )
     p.add_argument(
+        "--msdiff-cmd",
+        type=str,
+        dest="msdiff_cmd",
+        default="msdiff",
+        help="R|msdiff executable (name or path) used by the MD forward model of 'mfmc-run' (default: 'msdiff' from PATH). The command and its version are recorded in the manifest and in every result.json; the version changes D.",
+    )
+    p.add_argument(
         "--print-level",
         type=int,
         dest="print_level",

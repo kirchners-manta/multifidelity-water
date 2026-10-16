@@ -27,7 +27,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import subprocess
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -45,7 +44,7 @@ from ..algo_mfda.run_manager import (
     write_manifest,
 )
 from ..md.cache import CachedForwardModel
-from ..md.pipeline import MDForwardModel
+from ..md.pipeline import MDForwardModel, query_msdiff_version
 from ..md.pool import PoolStatus, Task, run_pool
 from .config import MFMCRunConfig, budget_label, build_config
 from .dummy import CorrelatedDummyForwardModel
@@ -88,33 +87,9 @@ _STRICT_KEYS = (
     "replay_performance_from_sha256",
     "replay_use_oms_allocation",
 )
-# Stored but never compared: total_cpus, ncpu_override, lammps_cmd, print_level,
+# Stored but never compared: total_cpus, ncpu_override, lammps_cmd, msdiff_cmd, print_level,
 # claim_timeout, stop_after (and the paths of replayed files, which are compared by
 # their hash). ``ncpu_override`` changes the costs, not the physics.
-
-
-def _msdiff_version() -> str | None:
-    """Return the output of ``msdiff --version`` (None if unavailable).
-
-    The msdiff version changes D (0.3.2 differs from the version of paper I), so it
-    is recorded in the manifest.
-
-    Returns
-    -------
-    str | None
-        Stripped output, or None if msdiff is missing or fails.
-    """
-    try:
-        out = subprocess.run(
-            ["msdiff", "--version"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return (out.stdout or out.stderr).strip() or None
 
 
 def _sha256(path: Path | None) -> str | None:
@@ -192,7 +167,8 @@ def build_settings(cfg: MFMCRunConfig, seed: int) -> dict[str, Any]:
         "git_hash": _git_hash(),
         "git_dirty": _git_dirty(),
         # stored only; a change on restart prints a warning (like git_hash)
-        "msdiff_version": _msdiff_version(),
+        "msdiff_cmd": cfg.msdiff_cmd,
+        "msdiff_version": query_msdiff_version(cfg.msdiff_cmd),
     }
 
 
@@ -342,6 +318,7 @@ def make_forward(cfg: MFMCRunConfig, cache_dir: Path) -> CachedForwardModel:
             protocol=cfg.protocol,
             require_cost=True,
             ncpu=dict(cfg.ncpu_override) or None,
+            msdiff_cmd=cfg.msdiff_cmd,
         )
     else:
         model = CorrelatedDummyForwardModel(
