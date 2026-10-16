@@ -40,6 +40,7 @@ As of now, the available algorithms are:
 After that, the `mfmc` step can be executed.
 - `mfmc`: Computes the MFMC estimator.
 - `markov-chain`: Multifidelity delayed acceptance MCMC (MFDA) for calibrating force field parameters, see [markov-chain](#markov-chain).
+- `mfmc-run`: The whole paper-I forward workflow (calibration, selection, allocation, evaluation, MFMC estimator) in resumable, multi-job SLURM runs, see [mfmc-run](#mfmc-run). `mfmc-jobscript` writes its job script.
 - `mfda-smoke`: Runs a single forward evaluation (no MCMC), to test the external programs.
 - `mfda-ncpu`: Prints the number of CPUs needed for the chosen number of chains.
 
@@ -433,6 +434,77 @@ msdiff is called as in paper I, so that MFDA values are comparable to paper-I da
 The returned D is the `D_0` column (Hummer term K not added), converted from 1e-12 to 1e-9 m^2/s.
 The cache stores the box shape and refuses to mix cubic and OrthoBoXY results; use a separate `--workdir` per box shape.
 Several chains start `mpirun` concurrently in one allocation; use `--bind-to none` (default of the script) or `srun --exact -n {ncpu} lmp -i {input}` via `--lammps-cmd`. This is untested on Marvin.
+
+### mfmc-run
+The whole paper-I forward workflow in one resumable command (`mfwater -a mfmc-run -c run.toml`), meant for SLURM jobs that are simply resubmitted to continue, like `markov-chain`.
+The legacy algorithms (`build` ... `mfmc`) stay available and use the same mathematics (`mfwater.mfmc_core`).
+
+Workflow:
+1. **Calibration** (phase 1): `len(molecules)` models x `evals` evaluations at shared samples (parameters and packmol/velocity seeds are the same for all models). Writes `calibration.hdf5`, then selects the models (SI Alg. 3) and writes `selection.json`.
+2. **Performance** (phase 2): for every budget the allocation `m*` (SI Alg. 4), fresh independent samples, evaluation of all budgets in one pool, then the estimator (Eq. 19), RMSE (Eq. 20) and gamma (Eq. 22). Writes `performance_<budget>.hdf5` per budget and `summary.hdf5`.
+
+All MD runs of a phase go through one evaluation pool: concurrent processes on `total_cpus` cores, largest system first, never more ranks than `total_cpus`.
+
+Settings (TOML keys = long option names; the TOML file overrides the command line; defaults in brackets):
+- `molecules` (strictly descending), `evals` (calibration evaluations per model, >= 2), `budgets` (core-seconds, the unit of the cost `w`), `params` [`lj`] (`lj`, `q`, `lj-q`; paper I never perturbs both), `orthoboxy`, `protocol` [`paper1`] (`paper1`, `paper1-exact` or `mfda`, see below), `seed` [random, printed and stored], `forward_model` [`dummy`] (`md` for real runs; the dummy is a cheap correlated stand-in for tests), `lammps_cmd`, `msdiff_cmd` [`msdiff`], `rmse_cost` [`calibration`].
+- `total_cpus` [`$SLURM_NTASKS`, else the ranks of the largest system]: cores the pool may use. `ncpu_override`: table `N = ranks` replacing `calc_cpus`, e.g. `{1024 = 6, 512 = 4}` (on the command line `--ncpu-override 1024=6 512=4`). Neither is compared on restart; the ranks are not part of the cache key.
+- `stop_after = "calibration"`: stop after selection and print the table (models, rho, sigma, w, number of excluded costs, selected set, gamma, `m*` and expected RMSE per budget; a budget that is too small is listed as `NO ALLOCATION` instead of raising). Not compared on restart: remove it to continue.
+- `calibration_from`: paper-I-format calibration file that replaces phase 1 (sigma, rho and `w` from its attributes). `molecules` and `evals` may then be omitted.
+- `replay_from`: paper-I-format calibration file whose stored `/models/{lj_params,charges,seeds}` are used as the calibration samples (the MD runs are done again; without `charges` the OPC3 charge is used).
+- `replay_performance_from`: table `budget = path` of paper-I performance (`oms`) files whose stored samples are evaluated again, e.g. `{"1e5" = "/path/oms_1e5/x_oms.hdf5"}`. If the models or `n_evals` of the file differ from the allocation computed from this run's calibration, the run stops with a message. With `replay_use_oms_allocation = true` the models and `n_evals` of the file are used instead (printed, stored as `allocation_source = "oms"`).
+- `claim_timeout` [1800]: seconds without heartbeat after which the claim of another job is stale.
+- `rmse_cost` chooses the cost basis of `mfmc_error` and `gamma`: `calibration` (the `w` of the allocation) or `performance` (the `w` measured in the performance evaluations). Both are stored (`*_calibration_cost`, `*_performance_cost`).
+
+Sampling: calibration samples come from `default_rng([seed, 0])`, the samples of budget number `b` from `default_rng([seed, 1, b])`; widths 1/300 (LJ) and 1/50 (`q_O`, `q_H = -q_O/2`) as in `chemmod-prep`, seeds in `[1, 100000)`. The seeds are part of the cache key.
+
+Run directory:
+```
+manifest.json                 settings, seed, algorithm/package version, git hash, msdiff command and version
+config.toml                   copy of the -c file (changed content is kept as config_1.toml, ...)
+cache/N{n}/{key_hash}/        evaluation cache and MD output (result.json, attempt_k/, claim files)
+calibration.hdf5              phase 1, paper-I format
+selection.json                selected models (1-based model_k numbers, indices, rho, std, w)
+performance_<budget>.hdf5     phase 2, one per budget (budget 1e5 -> performance_100000.hdf5)
+summary.hdf5                  all budgets: estimator, RMSE, gamma, allocation
+```
+
+HDF5 schema (names as in paper I; sort models by the attribute `n_molecules`, never by h5py name order):
+- `calibration.hdf5`: `/models` (attr `n_models`) with datasets `lj_params`, `charges`, `seeds` (shape `(2, m)`), groups `model_k` (k = 1.. in order of decreasing `n_molecules`) with attrs `n_molecules`, `n_evals`, `mean`, `std`, `correlation`, `computation_time` (w, core-s), `n_cost_excluded` and datasets `diffusion_coeff`, `computation_time_all`, `cost_complete`.
+- `performance_<budget>.hdf5`: `/models` attrs `budget`, `mfmc_estimator`, `mfmc_error`, `gamma`, `rmse_cost`, `mfmc_error_{calibration,performance}_cost`, `gamma_{calibration,performance}_cost`, `selected_models` (1-based numbers of the calibration groups `model_k`), `selected_molecules`, `unspent_budget`, `allocation_source`, `run_settings`; datasets `lj_params`, `charges`, `seeds` and `*_initial` (calibration); groups `model_k` (k in order of decreasing rho^2) with attrs `n_molecules`, `calibration_model`, `n_evals`, `n_evals_initial`, `alpha`, `correlation`, `mean`, `mean_initial`, `std_initial`, `computation_time`, `computation_time_initial`, `n_cost_excluded`, `n_cost_excluded_initial` and datasets `diffusion_coeff`, `diffusion_coeff_initial`.
+- `D` is stored in 1e-12 m^2/s (the paper-I unit) as float64 (paper I: float32).
+- Evaluations with an incomplete cost (a killed attempt has no `Total wall time`) still count for D but are excluded from `w`; the number per model is stored (`n_cost_excluded`) and printed at the end of each phase. If all evaluations of a model are excluded, the run stops with an error.
+
+**Protocols.**
+- `paper1`: paper-I LAMMPS input (1 ns + 2 ns, minimiser caps 100/1000) plus `restart 100000` and `run ... upto`, so that interrupted runs resume from restart files. TRAVIS reads **all** frames (empty answer to "How many trajectory frames to read", 2001 frames incl. frame 0) with depth 600; the non-comment lines of the generated TRAVIS inputs equal the paper-I post-processing inputs. (The shared template `travis_input_msd.txt` says 2000 frames: `travis_frames = None` in a protocol keeps that answer, the sentinel `ALL_FRAMES` writes the blank one.)
+- `paper1-exact`: bitwise replay of paper I. The LAMMPS template is the unchanged paper-I `input.lmp` (no `restart`, no `upto`; only the `read_data` path is rewritten, which is harmless). Replayed trajectories were bitwise identical to paper I until the first `restart` write, which perturbs at round-off level. Hence **no resume**: an interrupted evaluation starts again in a new `attempt_{k}` (old attempts are kept, never deleted). TRAVIS as in `paper1`.
+- `mfda`: shortened protocol of the MFDA algorithm.
+
+**msdiff.** `msdiff_cmd` selects the executable (name or path). The command and the output of `<msdiff_cmd> --version` (builds without that flag give `unknown (<path>)`) are stored in the manifest (a changed version warns on restart) and in every `result.json` (`msdiff_cmd`, `msdiff_version`), because the msdiff version changes D. Both `msdiff_out.csv` layouts (with and without the leading `Species` column) are read.
+
+**Restart.** Resubmit the same job script. Finished files are never rewritten, evaluations with a `result.json` are never repeated and interrupted MD runs resume from their LAMMPS restart files (not with `paper1-exact`). The manifest is compared (strict: algorithm version, forward model, box shape, protocol, molecules, evals, budgets, params, seed, `rmse_cost`, hashes of replay/calibration files). Stored but not compared: `total_cpus`, `ncpu_override`, `lammps_cmd`, `msdiff_cmd`, `print_level`, `claim_timeout`, `stop_after`. A different git hash, package version or `msdiff --version` only prints a warning (the msdiff version changes D).
+
+**Several jobs on one run directory.** Submit the same job script k times (`for i in 1 2 3; do sbatch run.sh; done`). The jobs claim evaluations with files in `cache/` (`O_EXCL`, heartbeat) and share the work; the first job writes the manifest, the others compare. A job that has nothing left to claim while others still compute prints a message and exits with code 0; the job that completes the last evaluation of a phase continues with the next phase. Output files are written under a temporary name and linked into place; if another job was faster, the existing file is verified to be identical. A job that died leaves a claim that becomes stale after `claim_timeout`; resubmit afterwards to take it over. `O_EXCL` atomicity between nodes of the Lustre file system was verified on Marvin (2026-10-15, two nodes, 60 tasks, each computed exactly once).
+
+**Job script.**
+```
+mfwater -a mfmc-jobscript --cluster marvin -c run.toml [--jobscript run.sh]
+```
+`--ntasks = total_cpus` (required in `run.toml`, must fit on one node), the script calls `mfwater -a mfmc-run -c <absolute path of run.toml>` (the cluster profile is shared with `mfda-jobscript`). The default output is `run-mfmc-<cluster>.sh`; an existing file is never overwritten.
+
+Example `run.toml` (T3: bitwise replay of the paper-I calibration `m6_e10_c_lj` and its `oms_1e5` samples on Marvin):
+```toml
+forward_model = "md"
+workdir = "./t3_m6_e10_c_lj"
+protocol = "paper1-exact"
+msdiff_cmd = "/lustre/mlnvme/data/tomfroe_hpc-myscratch/mfmc_forward_tests/2026-10-15/msdiff_versions/v_801fe9c/bin/msdiff"
+params = "lj"
+total_cpus = 96
+replay_from = "/lustre/mlnvme/data/tomfroe_hpc-myscratch/mfmc_water/m6_e10_c_lj/m6_e10_c_lj.hdf5"
+budgets = [1e5]
+replay_performance_from = {"1e5" = "/lustre/mlnvme/data/tomfroe_hpc-myscratch/mfmc_water/m6_e10_c_lj/oms_1e5/m6_e10_c_lj_oms.hdf5"}
+replay_use_oms_allocation = true
+ncpu_override = {1024 = 6, 512 = 4, 256 = 2, 128 = 2, 64 = 1, 32 = 1}
+```
 
 ## Notes
 The generation of input files for LAMMPS involves external software, namely [fftool](https://github.com/paduagroup/fftool) and [packmol](https://m3g.github.io/packmol/).

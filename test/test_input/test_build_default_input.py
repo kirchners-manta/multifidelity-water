@@ -176,3 +176,24 @@ def test_check_input_file_validates_model_contents(tmp_path: Path) -> None:
     with redirect_stderr(StringIO()), redirect_stdout(StringIO()):
         with pytest.raises(RuntimeError):
             check_input_file(input_file, "mfmc-prep")
+
+
+def test_overwrite_flag_replaces_without_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--overwrite`` replaces an existing file in a non-interactive session."""
+    file_path = tmp_path / "test_output.txt"
+    file_path.write_text("existing content")
+    args = p.parse_args(["-a", "build", "-o", str(file_path), "--overwrite"])
+    assert args.overwrite is True
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False, raising=False)
+    with patch("builtins.input", side_effect=AssertionError("input() was called")):
+        with redirect_stdout(StringIO()):
+            build_default_input(args)
+    assert file_path.read_bytes().startswith(b"\x89HDF")
+
+
+def test_overwrite_default_is_false() -> None:
+    """Without the flag the behaviour is unchanged."""
+    assert p.parse_args(["-a", "build"]).overwrite is False

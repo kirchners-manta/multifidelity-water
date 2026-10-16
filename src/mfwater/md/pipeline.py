@@ -42,7 +42,7 @@ from .forward_model import (
     key_hash,
 )
 from .lammps_log import parse_lammps_log
-from .protocol import MFDA_PROTOCOL, MDProtocol, get_protocol
+from .protocol import ALL_FRAMES, MFDA_PROTOCOL, MDProtocol, get_protocol
 from .system import calc_box_size, calc_cpus
 
 #: Directory with the paper-I templates (LAMMPS input, force field, TRAVIS input).
@@ -73,6 +73,45 @@ PAPER_I_MSDIFF_ARGS = ("--hummer", "298.15", "0.89e-3", "0.0")
 
 #: msdiff reports D in 1e-12 m^2/s; the likelihood uses 1e-9 m^2/s.
 MSDIFF_TO_NANO = 1.0e-3
+
+
+def query_msdiff_version(msdiff_cmd: str = "msdiff") -> str:
+    """Return the version string of an msdiff executable.
+
+    The msdiff version changes D (e.g. 0.3.2 vs. the July-2025 build of paper I),
+    so it is recorded with the results. Builds without a ``--version`` flag fail
+    that call; the result is then ``"unknown (<resolved path>)"``.
+
+    ``Popen`` is used (not ``subprocess.run``) so that tests that fake the
+    external programs through ``subprocess.run`` are not affected.
+
+    Parameters
+    ----------
+    msdiff_cmd : str, optional
+        msdiff executable (name or path).
+
+    Returns
+    -------
+    str
+        The stripped output of ``<msdiff_cmd> --version``, or
+        ``"unknown (<path>)"``.
+    """
+    resolved = shutil.which(msdiff_cmd) or msdiff_cmd
+    try:
+        proc = subprocess.Popen(
+            [msdiff_cmd, "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        out, _ = proc.communicate(timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return f"unknown ({resolved})"
+    first = out.strip().splitlines()[0].strip() if out.strip() else ""
+    # an old build may reject the flag and print its usage text with exit code 2
+    if proc.returncode != 0 or not first or first.lower().startswith("usage"):
+        return f"unknown ({resolved})"
+    return first
 
 
 def _run(
@@ -242,9 +281,12 @@ def write_resume_input(
     Raises
     ------
     ValueError
-        If ``restart_step`` is not in ``[0, protocol.prod_end_step)`` (``run
+        If the protocol has no restart files (``restart_every`` is None) or
+        ``restart_step`` is not in ``[0, protocol.prod_end_step)`` (``run
         upto`` with a target in the past is an error in LAMMPS).
     """
+    if protocol.restart_every is None:
+        raise ValueError(f"Protocol {protocol.name!r} has no restart files to resume.")
     eq_end, prod_end = protocol.eq_end_step, protocol.prod_end_step
     if not 0 <= restart_step < prod_end:
         raise ValueError(
@@ -443,7 +485,7 @@ def _set_answers(lines: list[str], prompt: str, answer: str) -> int:
 
 def patch_travis_input(
     template: str,
-    frames: int | None = MFDA_PROTOCOL.travis_frames,
+    frames: int | str | None = MFDA_PROTOCOL.travis_frames,
     depth: int | None = MFDA_PROTOCOL.travis_depth,
 ) -> str:
     """Set the number of frames and the correlation depth of a TRAVIS input.
@@ -458,8 +500,9 @@ def patch_travis_input(
     ----------
     template : str
         Content of the TRAVIS input template.
-    frames : int | None, optional
-        Trajectory frames to read; None keeps the answer of the template.
+    frames : int | str | None, optional
+        Trajectory frames to read; ``ALL_FRAMES`` writes an empty answer (TRAVIS
+        default: all frames); None keeps the answer of the template.
     depth : int | None, optional
         MSD correlation depth in frames; None keeps the answer of the template.
 
@@ -477,7 +520,10 @@ def patch_travis_input(
     lines = template.split("\n")
     if (
         frames is not None
-        and _set_answers(lines, TRAVIS_FRAMES_PROMPT, str(frames)) != 1
+        and _set_answers(
+            lines, TRAVIS_FRAMES_PROMPT, "" if frames == ALL_FRAMES else str(frames)
+        )
+        != 1
     ):
         raise ValueError(
             f"TRAVIS template needs exactly one {TRAVIS_FRAMES_PROMPT!r} prompt."
@@ -624,8 +670,12 @@ class MDForwardModel:
         msdiff arguments besides ``-f``, ``--from-travis`` and ``--orthoboxy``.
         Default is the paper-I call, :data:`PAPER_I_MSDIFF_ARGS`. The box
         length is read by msdiff from ``travis.log`` (``--from-travis``).
+    msdiff_cmd : str, optional
+        msdiff executable (name or path), default ``"msdiff"`` from ``PATH``. The
+        command and its version (:func:`query_msdiff_version`) are recorded in
+        ``result.json``.
     protocol : str | MDProtocol, optional
-        Registered protocol name (``"mfda"`` or ``"paper1"``) or a protocol
+        Registered protocol name (``"mfda"``, ``"paper1"`` or ``"paper1-exact"``) or a protocol
         object. Default ``"mfda"``, which reproduces the MFDA evaluations
         exactly.
     require_cost : bool, optional
@@ -673,6 +723,7 @@ class MDForwardModel:
         protocol: str | MDProtocol = "mfda",
         require_cost: bool = False,
         ncpu: Callable[[int], int] | Mapping[int, int] | None = None,
+        msdiff_cmd: str = "msdiff",
     ) -> None:
         self.work_dir_root = Path(work_dir_root)
         self.protocol = get_protocol(protocol)
@@ -691,6 +742,8 @@ class MDForwardModel:
         self.msdiff_args = tuple(
             PAPER_I_MSDIFF_ARGS if msdiff_args is None else msdiff_args
         )
+        self.msdiff_cmd = msdiff_cmd
+        self._msdiff_version: str | None = None
         self.last_attempt_dir: Path | None = None
         self.last_attempt_dirs: list[Path] = []
         self.require_cost = require_cost
@@ -732,7 +785,14 @@ class MDForwardModel:
     def _required_programs(self) -> list[str]:
         """Return the executables needed for one evaluation."""
         lammps_exe = shlex.split(self.lammps_cmd)[0]
-        return ["fftool", "packmol", lammps_exe, "travis", "msdiff"]
+        return ["fftool", "packmol", lammps_exe, "travis", self.msdiff_cmd]
+
+    @property
+    def msdiff_version(self) -> str:
+        """Return the msdiff version (queried once per model object)."""
+        if self._msdiff_version is None:
+            self._msdiff_version = query_msdiff_version(self.msdiff_cmd)
+        return self._msdiff_version
 
     def _new_attempt_dir(self, n_molecules: int, key_h: str) -> Path:
         """Create the next free ``attempt_{k}`` directory with its subfolders.
@@ -943,7 +1003,13 @@ class MDForwardModel:
         # Resume only if the newest attempt was interrupted after a restart file;
         # decided before the new attempt directory exists.
         newest = self._newest_attempt(base)
-        point = None if newest is None else self._resume_point(newest)
+        # A protocol without restart files cannot resume: always start fresh in a
+        # new attempt (the old attempts stay untouched).
+        point = (
+            None
+            if newest is None or self.protocol.restart_every is None
+            else self._resume_point(newest)
+        )
 
         attempt = self._new_attempt_dir(n_molecules, key_hash(key))
         self.last_attempt_dir = attempt
@@ -1168,8 +1234,8 @@ class MDForwardModel:
         if self.orthoboxy:
             xy_file = find_travis_msd_file(msd, TRAVIS_MSD_FILE_XY)
             z_file = find_travis_msd_file(msd, TRAVIS_MSD_FILE_Z)
-            msdiff_cmd = [
-                "msdiff",
+            msdiff_call = [
+                self.msdiff_cmd,
                 "-f",
                 xy_file.name,
                 "--from-travis",
@@ -1179,14 +1245,14 @@ class MDForwardModel:
             ]
         else:
             msd_file = find_travis_msd_file(msd, TRAVIS_MSD_FILE)
-            msdiff_cmd = [
-                "msdiff",
+            msdiff_call = [
+                self.msdiff_cmd,
                 "-f",
                 msd_file.name,
                 "--from-travis",
                 *self.msdiff_args,
             ]
-        _run(msdiff_cmd, msd, "msdiff")
+        _run(msdiff_call, msd, "msdiff")
         return parse_msdiff_output(msd / "msdiff_out.csv")
 
 

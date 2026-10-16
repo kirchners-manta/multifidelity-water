@@ -33,7 +33,9 @@ def multifidelity_monte_carlo(args: argparse.Namespace) -> int:
 
     The result attributes ``mfmc_estimator``, ``mfmc_error`` and ``gamma`` are written to
     the ``models`` group, as well as ``mfmc_error_calibration_cost`` and
-    ``mfmc_error_performance_cost`` for every basis whose costs are available.
+    ``mfmc_error_performance_cost`` for every basis whose costs are available; likewise
+    ``gamma_calibration_cost`` and ``gamma_performance_cost`` next to ``gamma`` (the
+    value of the chosen basis).
 
     Parameters
     ----------
@@ -109,6 +111,7 @@ def multifidelity_monte_carlo(args: argparse.Namespace) -> int:
         models.attrs["rmse_cost"] = rmse_cost
         for basis, err in errors.items():
             models.attrs[f"mfmc_error_{basis}_cost"] = err
+            models.attrs[f"gamma_{basis}_cost"] = gammas[basis]
         for i, (_, mod) in enumerate(ordered_models):
             mod.attrs["mean"] = means[i]
 

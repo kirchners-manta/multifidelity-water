@@ -10,6 +10,7 @@ from ..algo_input import build_default_input
 from ..algo_mfda import markov_chain_eval, mfda_jobscript, mfda_ncpu, mfda_smoke
 from ..algo_mfmc import multifidelity_monte_carlo
 from ..algo_mfmc_preparation import multifidelity_preparation
+from ..algo_mfmc_run import mfmc_jobscript, mfmc_run
 from ..algo_model_selection import select_optimal_models
 from ..argparser import parse_args, parser
 
@@ -51,5 +52,9 @@ def console_entry_point(argv: Sequence[str] | None = None) -> int:
         return mfda_ncpu(args)
     elif args.algorithm == "mfda-jobscript":
         return mfda_jobscript(args)
+    elif args.algorithm == "mfmc-run":
+        return mfmc_run(args)
+    elif args.algorithm == "mfmc-jobscript":
+        return mfmc_jobscript(args)
     else:
         raise ValueError(f"Unknown algorithm: {args.algorithm}")  # pragma: no cover

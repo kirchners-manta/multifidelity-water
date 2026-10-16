@@ -18,6 +18,7 @@ from .pipeline import MDForwardModel
 from .pool import PoolResult, PoolStatus, Task, run_pool
 from .protocol import (
     MFDA_PROTOCOL,
+    PAPER1_EXACT_PROTOCOL,
     PAPER1_PROTOCOL,
     PROTOCOLS,
     MDProtocol,
@@ -32,6 +33,7 @@ __all__ = [
     "LammpsCost",
     "MDProtocol",
     "MFDA_PROTOCOL",
+    "PAPER1_EXACT_PROTOCOL",
     "PAPER1_PROTOCOL",
     "PROTOCOLS",
     "PoolResult",

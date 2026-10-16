@@ -18,7 +18,9 @@ from mfwater.md.pipeline import (
     write_resume_input,
 )
 from mfwater.md.protocol import (
+    ALL_FRAMES,
     MFDA_PROTOCOL,
+    PAPER1_EXACT_PROTOCOL,
     PAPER1_PROTOCOL,
     PROTOCOLS,
     MDProtocol,
@@ -66,7 +68,7 @@ def marvin_input() -> list[str]:
 
 # ---------------------------------------------------------------- the registry
 def test_registry_and_lookup() -> None:
-    assert set(PROTOCOLS) == {"mfda", "paper1"}
+    assert set(PROTOCOLS) == {"mfda", "paper1", "paper1-exact"}
     assert get_protocol("mfda") is MFDA_PROTOCOL
     assert get_protocol(PAPER1_PROTOCOL) is PAPER1_PROTOCOL
     with pytest.raises(ValueError, match="Unknown MD protocol"):
@@ -97,7 +99,7 @@ def test_paper1_protocol_values() -> None:
     # 1 ns equilibration, then 2 ns more: absolute step 3 000 000
     assert (p.eq_end_step, p.prod_end_step) == (1_000_000, 3_000_000)
     assert (p.minimize_max_iter, p.minimize_max_eval) == (100, 1000)
-    assert p.travis_depth == 600 and p.travis_frames is None
+    assert p.travis_depth == 600 and p.travis_frames == ALL_FRAMES
 
 
 @pytest.mark.parametrize("protocol", list(PROTOCOLS.values()), ids=lambda p: p.name)
@@ -187,13 +189,48 @@ def test_paper1_input_matches_paper_i_marvin_input(tmp_path: Path) -> None:
     assert "velocity all create ${vTK} 90203\n" in new
 
 
-def test_paper1_travis_inputs_are_the_paper_i_templates() -> None:
-    for name in ("travis_input_msd.txt", "travis_input_msd_orthoboxy.txt"):
-        text = (TEMPLATE_DIR / name).read_text()
-        patched = patch_travis_input(
-            text, PAPER1_PROTOCOL.travis_frames, PAPER1_PROTOCOL.travis_depth
-        )
-        assert patched == text, name  # 2000 frames (cubic) / all (ortho), depth 600
+def _commands(text: str) -> list[str]:
+    """Return the non-comment lines of a TRAVIS input (comments start with '!')."""
+    # Whitespace at line ends and trailing blank lines are normalised: the
+    # pre-commit hooks edit the stored copies of the paper-I inputs.
+    lines = [ln.rstrip() for ln in text.split("\n") if not ln.startswith("!")]
+    while lines and not lines[-1]:
+        lines.pop()
+    return lines
+
+
+@pytest.mark.parametrize(
+    "template, reference",
+    [
+        ("travis_input_msd.txt", "input_normal.txt"),
+        ("travis_input_msd_orthoboxy.txt", "input_orthoboxy.txt"),
+    ],
+)
+@pytest.mark.parametrize("protocol", [PAPER1_PROTOCOL, PAPER1_EXACT_PROTOCOL])
+def test_paper1_travis_inputs_equal_paper_i_post_processing(
+    template: str, reference: str, protocol: MDProtocol
+) -> None:
+    """The non-comment lines equal the inputs used for paper I (all frames, depth 600).
+
+    The reference files are the paper-I post-processing inputs
+    (``scripts/input_normal.txt`` and ``input_orthoboxy.txt`` of the paper-I data).
+    The repository template differs for cubic boxes: it asks for 2000 frames.
+    """
+    text = (TEMPLATE_DIR / template).read_text()
+    patched = patch_travis_input(text, protocol.travis_frames, protocol.travis_depth)
+    ref = (Path(__file__).parents[1] / "data" / "travis" / reference).read_text()
+    assert _commands(patched) == _commands(ref)
+
+
+def test_all_frames_sentinel_is_not_none() -> None:
+    text = (TEMPLATE_DIR / "travis_input_msd.txt").read_text()
+    assert patch_travis_input(text, None, None) == text  # keeps the template's 2000
+    assert "2000" in _commands(text)
+    assert "2000" not in _commands(patch_travis_input(text, ALL_FRAMES, None))
+    with pytest.raises(ValueError, match="travis_frames"):
+        dataclasses.replace(PAPER1_PROTOCOL, travis_frames="some")
+    with pytest.raises(ValueError, match="travis_frames"):
+        dataclasses.replace(PAPER1_PROTOCOL, travis_frames=0)
 
 
 def test_patch_travis_input_none_keeps_template() -> None:
@@ -256,12 +293,67 @@ def test_md_forward_model_with_paper1_protocol(
     text = (attempt / "siminp" / "input.lmp").read_text()
     assert "run 1000000 upto" in text and "run 3000000 upto" in text
     assert "minimize 1.0e-4 1.0e-6 100 1000" in text
-    name = "travis_input_msd_orthoboxy.txt" if orthoboxy else "travis_input_msd.txt"
-    assert (attempt / "msd" / "travis_input_msd.txt").read_text() == (
-        TEMPLATE_DIR / name
-    ).read_text()
+    name = "input_orthoboxy.txt" if orthoboxy else "input_normal.txt"
+    ref = (Path(__file__).parents[1] / "data" / "travis" / name).read_text()
+    written = (attempt / "msd" / "travis_input_msd.txt").read_text()
+    assert _commands(written) == _commands(ref)  # as the paper-I inputs
 
 
 def test_unknown_protocol_in_forward_model(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Unknown MD protocol"):
         MDForwardModel(tmp_path, protocol="nope")
+
+
+# ------------------------------------------------------------------ paper1-exact
+def test_paper1_exact_input_is_the_paper_i_template(tmp_path: Path) -> None:
+    """Only the substituted values and the ``read_data`` path differ from input.lmp."""
+    p = PAPER1_EXACT_PROTOCOL
+    assert p.restart_every is None and p.name == "paper1-exact"
+    template = (TEMPLATE_DIR / "input.lmp").read_text()
+    assert p.lammps_template == TEMPLATE_DIR / "input.lmp"
+    out = tmp_path / "input.lmp"
+    write_lammps_input(p.lammps_template, out, THETA, int(MARVIN["seed"]), protocol=p)
+    changed = [
+        (a, b)
+        for a, b in zip(template.splitlines(), out.read_text().splitlines())
+        if a != b
+    ]
+    keys = ("pair_coeff", "set type", "velocity all create", "read_data")
+    assert changed and all(a.strip().startswith(keys) for a, _ in changed)
+    text = out.read_text()
+    assert "restart" not in text.replace("# restart", "")
+    assert "run 1000000\n" in text and "run 2000000\n" in text
+    assert "upto" not in text
+    assert "read_data ../siminp/data.lmp" in text
+
+
+def test_paper1_exact_cannot_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interrupted evaluation starts fresh in a new attempt; no restart lookup."""
+    from mfwater.md import pipeline
+
+    with pytest.raises(ValueError, match="no restart files"):
+        write_resume_input(
+            tmp_path / "r.lmp", tmp_path / "x", 5, protocol=PAPER1_EXACT_PROTOCOL
+        )
+    calls: list[Any] = []
+    monkeypatch.setattr(pipeline.shutil, "which", lambda p: f"/usr/bin/{p}")
+    monkeypatch.setattr(pipeline.subprocess, "run", make_fake_run(calls))
+    model = MDForwardModel(tmp_path, protocol="paper1-exact")
+
+    def no_lookup(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("restart lookup for a protocol without restarts")
+
+    monkeypatch.setattr(model, "_resume_point", no_lookup)
+    # an old, unfinished attempt with a restart-like file must be ignored
+    model(100, THETA)
+    first = model.last_attempt_dir
+    assert first is not None
+    (first / "msd" / "msdiff_out.csv").unlink()  # looks interrupted
+    (first / "simout" / "restart.500000").write_text("x")
+    model(100, THETA)
+    second = model.last_attempt_dir
+    assert second is not None and second != first and first.exists()
+    assert not (second / "resume_from.txt").exists()
+    assert (first / "simout" / "restart.500000").exists()  # never deleted
