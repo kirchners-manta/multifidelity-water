@@ -40,6 +40,7 @@ from .markov_chain import (
     as_int_list,
     build_config,
     make_config,
+    resolve_likelihood_settings,
     resolve_subchain_lengths,
     run_chain,
     write_results,
@@ -52,8 +53,9 @@ MANIFEST_NAME = "manifest.json"
 #: change alters the results of a replay with identical settings (a restart
 #: would then silently mix old cached evaluations with new chain logic).
 #: 1 = initial scheme, 2 = burn-in added to the chain length,
-#: 3 = MD protocol (250 ps equilibration + 1 ns production, longer minimiser cap).
-ALGORITHM_VERSION = 3
+#: 3 = MD protocol (250 ps equilibration + 1 ns production, longer minimiser cap),
+#: 4 = per-level likelihood with noise width s_k and finite-size correction C_k.
+ALGORITHM_VERSION = 4
 
 #: Manifest entries that must be identical for a restart (error otherwise).
 _STRICT_KEYS = (
@@ -65,6 +67,9 @@ _STRICT_KEYS = (
     "subchain_lengths",
     "chain_length",
     "burnin",
+    "noise_stds",
+    "fs_correction",
+    "fs_corrections",
     "params",
     "n_chains",
     "seed",
@@ -171,6 +176,8 @@ def build_settings(args: argparse.Namespace, seed: int) -> dict[str, Any]:
         JSON-serialisable settings, the content of the manifest.
     """
     molecules = as_int_list(args.n_molecules)
+    # resolved C_k are stored too: replay depends on the numbers, not only on the name
+    noise_stds, fs_corrections = resolve_likelihood_settings(args)
     return {
         "algorithm_version": ALGORITHM_VERSION,
         "forward_model": args.forward_model,
@@ -183,6 +190,9 @@ def build_settings(args: argparse.Namespace, seed: int) -> dict[str, Any]:
         ),
         "chain_length": int(args.n_mc_chain_length),
         "burnin": int(args.n_mc_burnin),
+        "noise_stds": noise_stds,
+        "fs_correction": args.fs_correction,
+        "fs_corrections": fs_corrections,
         "params": args.params,
         "n_chains": int(args.n_chains),
         "seed": int(seed),
@@ -212,6 +222,8 @@ def config_from_settings(settings: dict[str, Any]) -> MFDAConfig:
         settings["params"],
         settings["chain_length"],
         settings["burnin"],
+        noise_stds=settings["noise_stds"],
+        fs_corrections=settings["fs_corrections"],
         print_level=settings["print_level"],
     )
 

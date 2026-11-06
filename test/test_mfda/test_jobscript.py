@@ -17,6 +17,8 @@ forward_model = "md"
 workdir = "{workdir}"
 chains = 2
 molecules = [64, 32]
+noise_stds = [0.0, 0.0]
+fs_correction = "none"
 mcchainlength = 10
 mcsubchainlength = 2
 mcburnin = 2
@@ -154,6 +156,22 @@ def test_invalid_run_settings(in_tmp: Path) -> None:
     run.write_text(RUN_TOML.format(workdir="./w").replace("[64, 32]", "[32, 64]"))
     with pytest.raises(ValueError):
         mfda_jobscript(parse(run, cluster))
+
+
+def test_likelihood_settings_are_validated(in_tmp: Path) -> None:
+    # the job script only points to run.toml; the settings in it are checked here
+    run, cluster = write_inputs(in_tmp)
+    run.write_text(
+        RUN_TOML.format(workdir="./w").replace("[0.0, 0.0]", "[0.0, 0.1, 0.2]")
+    )
+    with pytest.raises(ValueError, match="one value per level"):
+        mfda_jobscript(parse(run, cluster))
+    run.write_text(
+        RUN_TOML.format(workdir="./w").replace('fs_correction = "none"\n', "")
+    )
+    with pytest.raises(ValueError, match="--fs-correction is required"):
+        mfda_jobscript(parse(run, cluster))
+    assert not (in_tmp / "run-mfda-testcluster.sh").exists()
 
 
 def test_run_toml_lammps_cmd_wins(in_tmp: Path) -> None:

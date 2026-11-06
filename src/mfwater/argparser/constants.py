@@ -10,7 +10,9 @@ import numpy as np
 KJ2KCAL: Final[float] = 0.239006  # convert kJ to kcal
 NA: Final[float] = 6.022e23  # atoms/mol
 K_B: Final[float] = 1.380649e-23  # Boltzmann constant in J/K (exact, SI 2019)
-YEH_HUMMER_XI: Final[float] = 2.837297  # xi of a cubic periodic box (Yeh and Hummer 2004)
+YEH_HUMMER_XI: Final[float] = (
+    2.837297  # xi of a cubic periodic box (Yeh and Hummer 2004)
+)
 
 # OPC3 constants
 WATER_MASS: Final[float] = 18.01528  # g/mol

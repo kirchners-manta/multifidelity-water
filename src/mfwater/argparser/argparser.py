@@ -463,6 +463,23 @@ def parser(name: str = "mfwater", **kwargs: Any) -> argparse.ArgumentParser:
         help="R|Number of burn-in steps B on the finest level, run in addition to --mcchainlength (M_1), so B + M_1 steps in total. All entries on all levels produced during the first B steps (including subchains) are discarded. B = 0 is allowed (warning).",
     )
     p.add_argument(
+        "--noise-stds",
+        type=float,
+        dest="noise_stds",
+        default=None,
+        action=action_not_less_than(0),
+        nargs="+",
+        help="R|Only for 'markov-chain': noise width s_k of the likelihood per level, in 1e-9 m^2/s, level 1 (finest) first. One value per level (len(--molecules) values); 0 is allowed. Required, there is no default.",
+    )
+    p.add_argument(
+        "--fs-correction",
+        type=str,
+        dest="fs_correction",
+        choices=["yeh-hummer", "none"],
+        default=None,
+        help="R|Only for 'markov-chain': finite-size correction C_k added to the simulated D on every level. 'yeh-hummer': C = xi k_B T / (6 pi eta L) with constant T = 298.15 K and eta = 0.89e-3 Pa s (zero for --orthoboxy); 'none': C = 0. Required, there is no default.",
+    )
+    p.add_argument(
         "--overwrite",
         action="store_true",
         dest="overwrite",
