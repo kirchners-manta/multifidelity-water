@@ -49,8 +49,8 @@ class MFDAConfig:
     n_burnin : int
         Number of burn-in steps ``B`` on the fine level; the chain runs
         ``B + M_1`` fine steps in total and the first ``B`` are discarded.
-    noise_stds : tuple[float, ...]
-        Noise width ``s_k`` of the likelihood per level (level 1 first), in
+    likelihood_widths : tuple[float, ...]
+        Likelihood width ``t_k`` per level (level 1 first), in
         1e-9 m^2/s. No default: ``0`` is a legal value, the choice is the caller's.
     fs_corrections : tuple[float, ...]
         Finite-size correction ``C_k`` added to ``D`` per level (level 1 first),
@@ -63,8 +63,8 @@ class MFDAConfig:
     ValueError
         If array shapes are inconsistent, no component is free, molecule
         numbers are not strictly descending, a length is out of range, or the
-        number of subchain lengths, noise widths or corrections does not match
-        the number of levels, or a noise width is negative or not finite, or a
+        number of subchain lengths, likelihood widths or corrections does not match
+        the number of levels, or a likelihood width is negative or not finite, or a
         correction is not finite.
     """
 
@@ -75,7 +75,7 @@ class MFDAConfig:
     free_mask: np.ndarray
     chain_length: int
     n_burnin: int
-    noise_stds: tuple[float, ...]
+    likelihood_widths: tuple[float, ...]
     fs_corrections: tuple[float, ...]
     print_level: int = 0
 
@@ -105,7 +105,7 @@ class MFDAConfig:
         if self.n_burnin < 0:
             raise ValueError(f"--mcburnin must be >= 0, got {self.n_burnin}.")
         for name, option in (
-            ("noise_stds", "--noise-stds"),
+            ("likelihood_widths", "--likelihood-widths"),
             ("fs_corrections", "--fs-correction"),
         ):
             values = getattr(self, name)
@@ -116,9 +116,9 @@ class MFDAConfig:
                 )
             if not all(np.isfinite(v) for v in values):
                 raise ValueError(f"{name} must be finite, got {list(values)}.")
-        if any(v < 0 for v in self.noise_stds):
+        if any(v < 0 for v in self.likelihood_widths):
             raise ValueError(
-                f"Noise widths (--noise-stds) must be >= 0, got {list(self.noise_stds)}."
+                f"likelihood widths (--likelihood-widths) must be >= 0, got {list(self.likelihood_widths)}."
             )
         if not (self.means.shape == self.kernel_noise.shape == self.free_mask.shape):
             raise ValueError("means, kernel_noise and free_mask must share one shape.")
@@ -134,7 +134,7 @@ class MFDAConfig:
             object.__setattr__(self, name, arr)
 
     def level_settings(self, level: int) -> tuple[float, float]:
-        """Return the likelihood settings ``(s_k, C_k)`` of a level.
+        """Return the likelihood settings ``(t_k, C_k)`` of a level.
 
         Parameters
         ----------
@@ -144,9 +144,9 @@ class MFDAConfig:
         Returns
         -------
         tuple[float, float]
-            Noise width and finite-size correction of that level.
+            Likelihood width and finite-size correction of that level.
         """
-        return self.noise_stds[level - 1], self.fs_corrections[level - 1]
+        return self.likelihood_widths[level - 1], self.fs_corrections[level - 1]
 
     @property
     def n_levels(self) -> int:
@@ -377,7 +377,7 @@ def chemical_mh(
         The generated samples, in order.
     """
     mols = config.molecules[level - 1]
-    noise_std, fs_corr = config.level_settings(level)
+    likelihood_width, fs_corr = config.level_settings(level)
     current = initial_sample
     subchain: list[np.ndarray] = []
 
@@ -393,9 +393,9 @@ def chemical_mh(
 
         # log space for numerical stability; the Gaussian kernel is symmetric and cancels
         log_r = (
-            log_likelihood(d_prop, noise_std, fs_corr)
+            log_likelihood(d_prop, likelihood_width, fs_corr)
             + log_prior(proposal, config.means, config.kernel_noise, config.free_mask)
-            - log_likelihood(d_curr, noise_std, fs_corr)
+            - log_likelihood(d_curr, likelihood_width, fs_corr)
             - log_prior(current, config.means, config.kernel_noise, config.free_mask)
         )
         p = 1.0 if log_r >= 0 else float(np.exp(log_r))
@@ -424,7 +424,7 @@ def acceptance_probability(
     """Delayed-acceptance probability of a proposal from the coarser level.
 
     ``p = min(1, L_i(theta') L_{i+1}(theta) / (L_i(theta) L_{i+1}(theta')))``.
-    Each likelihood uses the noise width and finite-size correction of its own
+    Each likelihood uses the width and finite-size correction of its own
     level. The prior cancels and is not included.
 
     Parameters
@@ -432,7 +432,7 @@ def acceptance_probability(
     level : int
         The finer level ``i`` (1-based, ``i < eta``); the coarser level is ``i + 1``.
     config : MFDAConfig
-        Algorithm settings (molecule numbers, ``s_k`` and ``C_k`` per level).
+        Algorithm settings (molecule numbers, ``t_k`` and ``C_k`` per level).
     current_sample : np.ndarray
         Current sample ``theta``.
     proposal : np.ndarray
@@ -446,15 +446,15 @@ def acceptance_probability(
         Acceptance probability in ``[0, 1]``.
     """
     n_fine, n_coarse = config.molecules[level - 1], config.molecules[level]
-    s_fine, c_fine = config.level_settings(level)
-    s_coarse, c_coarse = config.level_settings(level + 1)
+    t_fine, c_fine = config.level_settings(level)
+    t_coarse, c_coarse = config.level_settings(level + 1)
 
     # four forward evaluations; repeated ones are served by the cache of `forward`
-    log_fine_prop = log_likelihood(forward(n_fine, proposal), s_fine, c_fine)
-    log_fine_curr = log_likelihood(forward(n_fine, current_sample), s_fine, c_fine)
-    log_coarse_prop = log_likelihood(forward(n_coarse, proposal), s_coarse, c_coarse)
+    log_fine_prop = log_likelihood(forward(n_fine, proposal), t_fine, c_fine)
+    log_fine_curr = log_likelihood(forward(n_fine, current_sample), t_fine, c_fine)
+    log_coarse_prop = log_likelihood(forward(n_coarse, proposal), t_coarse, c_coarse)
     log_coarse_curr = log_likelihood(
-        forward(n_coarse, current_sample), s_coarse, c_coarse
+        forward(n_coarse, current_sample), t_coarse, c_coarse
     )
 
     log_r = log_fine_prop + log_coarse_curr - log_fine_curr - log_coarse_prop
@@ -509,14 +509,16 @@ def proposal_kernel(
     return proposal
 
 
-def log_likelihood(input_val: float, noise_std: float, fs_correction: float) -> float:
+def log_likelihood(
+    input_val: float, likelihood_width: float, fs_correction: float
+) -> float:
     """Logarithmic likelihood of a diffusion coefficient given the reference data.
 
-    ``log L_k(D) = -(Dbar_exp - (D + C_k))^2 / (2 (sigma_exp^2 / alpha + s_k^2))``
+    ``log L_k(D) = -(Dbar_exp - (D + C_k))^2 / (2 (sigma_exp^2 / alpha + t_k^2))``
 
     ``Dbar_exp`` is the mean and ``sigma_exp`` the standard deviation (``ddof=0``)
     of the ``alpha`` reference values. Terms independent of ``D`` are dropped, so
-    only differences of this function are meaningful. For ``s_k = C_k = 0`` its
+    only differences of this function are meaningful. For ``t_k = C_k = 0`` its
     differences equal those of the former likelihood
     ``-0.5 sum_h (D - D_h)^2 / sigma_exp^2``.
 
@@ -524,9 +526,9 @@ def log_likelihood(input_val: float, noise_std: float, fs_correction: float) -> 
     ----------
     input_val : float
         Simulated diffusion coefficient ``D`` of the level in 1e-9 m^2/s.
-    noise_std : float
-        Noise width ``s_k`` of the level in 1e-9 m^2/s (``>= 0``). There is no
-        default; ``0`` switches the noise term off.
+    likelihood_width : float
+        Likelihood width ``t_k`` of the level in 1e-9 m^2/s (``>= 0``). There is no
+        default. This is the width added to the likelihood, not the MD noise itself.
     fs_correction : float
         Finite-size correction ``C_k`` of the level in 1e-9 m^2/s, added to ``D``.
 
@@ -537,7 +539,7 @@ def log_likelihood(input_val: float, noise_std: float, fs_correction: float) -> 
     """
     reference_values = constants.TARGET_DIFFUSION_COEFFICIENT
     alpha = reference_values.size
-    variance = reference_values.std() ** 2 / alpha + noise_std**2
+    variance = reference_values.std() ** 2 / alpha + likelihood_width**2
     residual = reference_values.mean() - (input_val + fs_correction)
     return float(-(residual**2) / (2.0 * variance))
 

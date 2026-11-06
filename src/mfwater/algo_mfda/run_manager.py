@@ -54,7 +54,7 @@ MANIFEST_NAME = "manifest.json"
 #: would then silently mix old cached evaluations with new chain logic).
 #: 1 = initial scheme, 2 = burn-in added to the chain length,
 #: 3 = MD protocol (250 ps equilibration + 1 ns production, longer minimiser cap),
-#: 4 = per-level likelihood with noise width s_k and finite-size correction C_k.
+#: 4 = per-level likelihood with likelihood width t_k and finite-size correction C_k.
 ALGORITHM_VERSION = 4
 
 #: Manifest entries that must be identical for a restart (error otherwise).
@@ -67,7 +67,7 @@ _STRICT_KEYS = (
     "subchain_lengths",
     "chain_length",
     "burnin",
-    "noise_stds",
+    "likelihood_widths",
     "fs_correction",
     "fs_corrections",
     "params",
@@ -177,7 +177,7 @@ def build_settings(args: argparse.Namespace, seed: int) -> dict[str, Any]:
     """
     molecules = as_int_list(args.n_molecules)
     # resolved C_k are stored too: replay depends on the numbers, not only on the name
-    noise_stds, fs_corrections = resolve_likelihood_settings(args)
+    likelihood_widths, fs_corrections = resolve_likelihood_settings(args)
     return {
         "algorithm_version": ALGORITHM_VERSION,
         "forward_model": args.forward_model,
@@ -190,7 +190,7 @@ def build_settings(args: argparse.Namespace, seed: int) -> dict[str, Any]:
         ),
         "chain_length": int(args.n_mc_chain_length),
         "burnin": int(args.n_mc_burnin),
-        "noise_stds": noise_stds,
+        "likelihood_widths": likelihood_widths,
         "fs_correction": args.fs_correction,
         "fs_corrections": fs_corrections,
         "params": args.params,
@@ -222,7 +222,7 @@ def config_from_settings(settings: dict[str, Any]) -> MFDAConfig:
         settings["params"],
         settings["chain_length"],
         settings["burnin"],
-        noise_stds=settings["noise_stds"],
+        likelihood_widths=settings["likelihood_widths"],
         fs_corrections=settings["fs_corrections"],
         print_level=settings["print_level"],
     )

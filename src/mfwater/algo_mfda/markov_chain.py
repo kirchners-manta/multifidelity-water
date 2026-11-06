@@ -186,47 +186,47 @@ def as_float_list(value: float | Sequence[float] | None) -> list[float]:
 def resolve_likelihood_settings(
     args: argparse.Namespace,
 ) -> tuple[list[float], list[float]]:
-    """Resolve ``--noise-stds`` and ``--fs-correction`` to per-level lists.
+    """Resolve ``--likelihood-widths`` and ``--fs-correction`` to per-level lists.
 
     Neither option has a default: both must be given explicitly.
 
     Parameters
     ----------
     args : argparse.Namespace
-        Command line arguments (``n_molecules``, ``noise_stds``,
+        Command line arguments (``n_molecules``, ``likelihood_widths``,
         ``fs_correction``, ``orthoboxy``).
 
     Returns
     -------
-    noise_stds : list[float]
-        Noise width ``s_k`` per level.
+    likelihood_widths : list[float]
+        Likelihood width ``t_k`` per level.
     fs_corrections : list[float]
         Finite-size correction ``C_k`` per level in 1e-9 m^2/s.
 
     Raises
     ------
     ValueError
-        If an option is missing, the number of noise widths differs from the
+        If an option is missing, the number of likelihood widths differs from the
         number of levels, or the correction method is unknown.
     """
     molecules = as_int_list(args.n_molecules)
-    if args.noise_stds is None:
+    if args.likelihood_widths is None:
         raise ValueError(
-            "--noise-stds is required: one noise width s_k per level "
+            "--likelihood-widths is required: one likelihood width t_k per level "
             "(len(--molecules) values, 0 is allowed)."
         )
     if args.fs_correction is None:
         raise ValueError("--fs-correction is required: 'yeh-hummer' or 'none'.")
-    noise = as_float_list(args.noise_stds)
-    if len(noise) != len(molecules):
+    widths = as_float_list(args.likelihood_widths)
+    if len(widths) != len(molecules):
         raise ValueError(
-            f"--noise-stds needs one value per level: {len(molecules)} "
-            f"(len(--molecules)), got {len(noise)}."
+            f"--likelihood-widths needs one value per level: {len(molecules)} "
+            f"(len(--molecules)), got {len(widths)}."
         )
     corr = resolve_fs_corrections(
         args.fs_correction, molecules, bool(getattr(args, "orthoboxy", False))
     )
-    return noise, corr
+    return widths, corr
 
 
 def build_config(args: argparse.Namespace) -> MFDAConfig:
@@ -255,14 +255,14 @@ def build_config(args: argparse.Namespace) -> MFDAConfig:
     if not molecules:
         raise ValueError("--molecules is required.")
     sub = resolve_subchain_lengths(args.n_mc_subchain_lengths, len(molecules))
-    noise, corr = resolve_likelihood_settings(args)
+    widths, corr = resolve_likelihood_settings(args)
     return make_config(
         molecules,
         sub,
         args.params,
         int(args.n_mc_chain_length),
         int(args.n_mc_burnin),
-        noise_stds=noise,
+        likelihood_widths=widths,
         fs_corrections=corr,
         print_level=args.print_level,
     )
@@ -275,7 +275,7 @@ def make_config(
     chain_length: int,
     n_burnin: int,
     *,
-    noise_stds: Sequence[float],
+    likelihood_widths: Sequence[float],
     fs_corrections: Sequence[float],
     print_level: int = 0,
 ) -> MFDAConfig:
@@ -293,8 +293,8 @@ def make_config(
         Fine-level steps ``M_1`` kept after the burn-in.
     n_burnin : int
         Burn-in steps ``B`` on the fine level (run in addition to ``M_1``).
-    noise_stds : Sequence[float]
-        Noise width ``s_k`` per level (level 1 first), 1e-9 m^2/s.
+    likelihood_widths : Sequence[float]
+        Likelihood width ``t_k`` per level (level 1 first), 1e-9 m^2/s.
     fs_corrections : Sequence[float]
         Finite-size correction ``C_k`` per level (level 1 first), 1e-9 m^2/s.
     print_level : int
@@ -332,7 +332,7 @@ def make_config(
         free_mask=np.array(_FREE_MASKS[params], dtype=bool),
         chain_length=int(chain_length),
         n_burnin=int(n_burnin),
-        noise_stds=tuple(float(v) for v in noise_stds),
+        likelihood_widths=tuple(float(v) for v in likelihood_widths),
         fs_corrections=tuple(float(v) for v in fs_corrections),
         print_level=print_level,
     )
@@ -387,6 +387,6 @@ def write_results(
         f.attrs["n_steps_total"] = config.n_burnin + config.chain_length
         f.attrs["molecules"] = np.array(config.molecules)
         f.attrs["subchain_lengths"] = np.array(config.subchain_lengths)
-        f.attrs["noise_stds"] = np.array(config.noise_stds)
+        f.attrs["likelihood_widths"] = np.array(config.likelihood_widths)
         f.attrs["fs_corrections"] = np.array(config.fs_corrections)
         f.attrs["free_mask"] = config.free_mask

@@ -46,7 +46,7 @@ def make_args(**kw: object) -> argparse.Namespace:
         n_mc_subchain_lengths=[2, 3],
         n_mc_chain_length=6,
         n_mc_burnin=0,
-        noise_stds=[0.0, 0.0, 0.0],
+        likelihood_widths=[0.0, 0.0, 0.0],
         fs_correction="none",
         orthoboxy=False,
         params="lj",
@@ -70,7 +70,7 @@ def run(
     """Run a small chain and return (result, config)."""
     zeros = (0.0,) * len(mols)
     cfg = make_config(
-        mols, sub, params, m1, burn, noise_stds=zeros, fs_corrections=zeros
+        mols, sub, params, m1, burn, likelihood_widths=zeros, fs_corrections=zeros
     )
     res = run_chain(cfg, forward, np.random.default_rng(seed), seed)
     return res, cfg
@@ -138,7 +138,7 @@ def test_rng_independent_of_caching(tmp_path: Path) -> None:
         "lj-q",
         6,
         0,
-        noise_stds=(0.0, 0.0, 0.0),  # test values, not defaults
+        likelihood_widths=(0.0, 0.0, 0.0),  # test values, not defaults
         fs_corrections=(0.0, 0.0, 0.0),
     )
     rng1 = np.random.default_rng(3)
@@ -165,7 +165,9 @@ def test_fixed_parameters_stay_at_mean() -> None:
 def test_invalid_inputs() -> None:
     with pytest.raises(ValueError, match="At least two levels"):
         build_config(
-            make_args(n_molecules=[8], n_mc_subchain_lengths=[], noise_stds=[0.0])
+            make_args(
+                n_molecules=[8], n_mc_subchain_lengths=[], likelihood_widths=[0.0]
+            )
         )
     with pytest.raises(ValueError, match="--molecules is required"):
         build_config(make_args(n_molecules=None))
@@ -250,7 +252,7 @@ def test_estimator_errors() -> None:
         mfda_estimator([[np.zeros(3)], [np.zeros(3)]], [[], []])
 
 
-# --- likelihood with noise width s_k and finite-size correction C_k ------------
+# --- likelihood with likelihood width t_k and finite-size correction C_k ------------
 
 
 def _old_log_likelihood(d: float) -> float:
@@ -275,7 +277,7 @@ def test_log_likelihood_hand_value() -> None:
     )
     # the correction shifts D: L(D, C) = L(D + C, 0)
     assert log_likelihood(d, s, c) == pytest.approx(log_likelihood(d + c, s, 0.0))
-    # a larger noise width flattens the likelihood
+    # a larger likelihood width flattens the likelihood
     assert log_likelihood(d, 0.5, c) > log_likelihood(d, s, c)
 
 
@@ -289,7 +291,13 @@ def test_zero_noise_zero_correction_matches_old_differences() -> None:
 
 def test_zero_settings_reproduce_old_acceptance_ratios() -> None:
     cfg = make_config(
-        (64, 32, 16), (2, 3), "lj", 1, 0, noise_stds=(0, 0, 0), fs_corrections=(0, 0, 0)
+        (64, 32, 16),
+        (2, 3),
+        "lj",
+        1,
+        0,
+        likelihood_widths=(0, 0, 0),
+        fs_corrections=(0, 0, 0),
     )
     cur, prop = np.array([0.16, 3.1, -0.9]), np.array([0.17, 3.2, -0.9])
     p = acceptance_probability(1, cfg, cur, prop, toy_forward)
@@ -312,7 +320,7 @@ def _level_forward(n: int, theta: np.ndarray) -> float:
 def test_acceptance_uses_settings_of_the_correct_level() -> None:
     noise, corr = (0.05, 0.2, 0.4), (0.1, 0.5, 0.9)
     cfg = make_config(
-        (64, 32, 16), (2, 3), "lj", 1, 0, noise_stds=noise, fs_corrections=corr
+        (64, 32, 16), (2, 3), "lj", 1, 0, likelihood_widths=noise, fs_corrections=corr
     )
     cur, prop = np.array([0.15, 3.17, -0.9]), np.array([0.16, 3.17, -0.9])
 
@@ -345,7 +353,7 @@ def test_acceptance_uses_settings_of_the_correct_level() -> None:
         "lj",
         1,
         0,
-        noise_stds=noise[::-1],
+        likelihood_widths=noise[::-1],
         fs_corrections=corr[::-1],
     )
     assert acceptance_probability(
@@ -354,11 +362,17 @@ def test_acceptance_uses_settings_of_the_correct_level() -> None:
 
 
 def test_chemical_mh_uses_coarsest_level_settings() -> None:
-    # the coarsest-level chain depends on (s_k, C_k) of level 3: changing them
+    # the coarsest-level chain depends on (t_k, C_k) of level 3: changing them
     # changes the samples
     def chain(noise: tuple[float, ...], corr: tuple[float, ...]) -> np.ndarray:
         cfg = make_config(
-            (64, 32, 16), (2, 3), "lj", 6, 0, noise_stds=noise, fs_corrections=corr
+            (64, 32, 16),
+            (2, 3),
+            "lj",
+            6,
+            0,
+            likelihood_widths=noise,
+            fs_corrections=corr,
         )
         return run_chain(cfg, toy_forward, np.random.default_rng(4)).samples[2]
 
@@ -377,18 +391,24 @@ def test_likelihood_settings_validation() -> None:
         chain_length=1,
         n_burnin=0,
     )
-    MFDAConfig(**kw, noise_stds=(0.0, 0.0), fs_corrections=(0.0, 0.0))  # 0 is legal
-    with pytest.raises(ValueError, match="Expected 2 values for noise_stds"):
-        MFDAConfig(**kw, noise_stds=(0.0,), fs_corrections=(0.0, 0.0))
+    MFDAConfig(
+        **kw, likelihood_widths=(0.0, 0.0), fs_corrections=(0.0, 0.0)
+    )  # 0 is legal
+    with pytest.raises(ValueError, match="Expected 2 values for likelihood_widths"):
+        MFDAConfig(**kw, likelihood_widths=(0.0,), fs_corrections=(0.0, 0.0))
     with pytest.raises(ValueError, match="Expected 2 values for fs_corrections"):
-        MFDAConfig(**kw, noise_stds=(0.0, 0.0), fs_corrections=(0.0,) * 3)
+        MFDAConfig(**kw, likelihood_widths=(0.0, 0.0), fs_corrections=(0.0,) * 3)
     with pytest.raises(ValueError, match=">= 0"):
-        MFDAConfig(**kw, noise_stds=(0.1, -0.1), fs_corrections=(0.0, 0.0))
+        MFDAConfig(**kw, likelihood_widths=(0.1, -0.1), fs_corrections=(0.0, 0.0))
     with pytest.raises(ValueError, match="finite"):
-        MFDAConfig(**kw, noise_stds=(0.1, float("nan")), fs_corrections=(0.0, 0.0))
+        MFDAConfig(
+            **kw, likelihood_widths=(0.1, float("nan")), fs_corrections=(0.0, 0.0)
+        )
     with pytest.raises(ValueError, match="finite"):
-        MFDAConfig(**kw, noise_stds=(0.1, 0.1), fs_corrections=(0.0, float("inf")))
+        MFDAConfig(
+            **kw, likelihood_widths=(0.1, 0.1), fs_corrections=(0.0, float("inf"))
+        )
     with pytest.raises(ValueError, match="one value per level"):
-        build_config(make_args(noise_stds=[0.1, 0.1]))
+        build_config(make_args(likelihood_widths=[0.1, 0.1]))
     with pytest.raises(ValueError, match="fs-correction"):
         build_config(make_args(fs_correction="bogus"))

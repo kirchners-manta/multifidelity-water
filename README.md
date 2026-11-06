@@ -376,7 +376,7 @@ Level 1 is the finest (largest `N`), the last level the coarsest.
 mfwater -a markov-chain --forward-model md --workdir ./mfda_run --chains 4 \
     --molecules 1000 500 100 --mcchainlength 1000 --mcsubchainlength 10 \
     --mcburnin 100 --params lj --seed 1 \
-    --noise-stds <s_1> <s_2> <s_3> --fs-correction yeh-hummer
+    --likelihood-widths <t_1> <t_2> <t_3> --fs-correction yeh-hummer
 ```
 Arguments (defaults in brackets):
 - `--forward-model {dummy,md}` [`dummy`]: cheap stand-in or the MD pipeline (fftool, packmol, LAMMPS, TRAVIS, msdiff).
@@ -385,15 +385,15 @@ Arguments (defaults in brackets):
 - `--molecules`: molecules per level (strictly descending); the number of levels is `len(--molecules)`. `--models` is ignored by `markov-chain`.
 - `--mcchainlength` [1000]: steps `M_1` on the finest level that are kept. `--mcburnin` [100]: burn-in steps `B`, run in addition (`B + M_1` fine steps in total); everything produced on all levels during the first `B` steps is discarded, so the finest level keeps exactly `M_1` samples. `B = 0` is allowed but prints a warning.
 - `--mcsubchainlength` [10]: subchain lengths for levels `2..eta`; one value is used for all levels, otherwise `len(--molecules) - 1` values.
-- `--noise-stds` (required, no default): noise width `s_k` of the likelihood per level, level 1 first, in 1e-9 m^2/s; exactly `len(--molecules)` values (an error otherwise), each `>= 0`. `0` is allowed and switches the noise term off on that level. The code does not suggest values.
+- `--likelihood-widths` (required, no default): likelihood width `t_k` of the likelihood per level, level 1 first, in 1e-9 m^2/s; exactly `len(--molecules)` values (an error otherwise), each `>= 0`. This is the width *added* to the likelihood, not the MD noise `s_k` itself: the cached noisy `D` already averages the chain over the MD noise, so widening a level by `s_k` counts that noise twice on that level. Use `t_1 = 0` on the finest level and `t_k = s_k` on the coarse levels, where it only serves mixing (see the SI of paper II).
 - `--fs-correction {yeh-hummer,none}` (required, no default): finite-size correction `C_k`, added to the simulated `D` on **every** level (also the finest). `yeh-hummer`: `C_k = xi k_B T / (6 pi eta L_k)` with `xi = 2.837297`, `T = 298.15 K`, `eta = 0.89e-3 Pa s` (constants, the values of the msdiff call of paper I) and `L_k` the cubic box length of level `k`, so `C_k` depends on `N_k` but not on the force field parameters; `0` for `--orthoboxy` (OrthoBoXY corrects the finite-size effect itself). `none`: `C_k = 0`.
 - `--params {lj,q,lj-q}` [`lj`]: calibrated parameters, the others stay at the OPC3 value.
 - `--seed` [random, printed and stored in the manifest], `--orthoboxy` (tetragonal OrthoBoXY boxes, see below), `--lammps-cmd` [`mpirun -np {ncpu} lmp -i {input}`], `--print-level {0,1}` [0] (0 = silent, 1 = debug output of the MFDA chains; also settable as `print_level = 1` in the TOML file).
 - `-o` [`default.hdf5`]: name of the combined summary file inside `--workdir` (an absolute path is used as is).
 
 Likelihood of level `k` for the cached diffusion coefficient `D` (terms independent of `D` are dropped, only differences matter):
-`log L_k(D) = -(Dbar_exp - (D + C_k))^2 / (2 (sigma_exp^2 / alpha + s_k^2))`,
-with `Dbar_exp` the mean, `sigma_exp` the standard deviation (`ddof=0`) and `alpha` the number of the reference values (`constants.TARGET_DIFFUSION_COEFFICIENT`). The delayed-acceptance ratio of level `i` uses the `s_k`, `C_k` of level `i` for the fine and of level `i+1` for the coarse factors. `D` is cached as before; `s_k` and `C_k` are applied afterwards. The options, the resolved `C_k` (`fs_corrections`) and `algorithm_version` 4 are stored in the manifest and compared strictly on a restart. Also usable in the TOML file: `noise-stds = [...]`, `fs-correction = "yeh-hummer"`; `mfda-jobscript` validates both.
+`log L_k(D) = -(Dbar_exp - (D + C_k))^2 / (2 (sigma_exp^2 / alpha + t_k^2))`,
+with `Dbar_exp` the mean, `sigma_exp` the standard deviation (`ddof=0`) and `alpha` the number of the reference values (`constants.TARGET_DIFFUSION_COEFFICIENT`). The delayed-acceptance ratio of level `i` uses the `t_k`, `C_k` of level `i` for the fine and of level `i+1` for the coarse factors. `D` is cached as before; `t_k` and `C_k` are applied afterwards. The options, the resolved `C_k` (`fs_corrections`) and `algorithm_version` 4 are stored in the manifest and compared strictly on a restart. Also usable in the TOML file: `likelihood-widths = [...]`, `fs-correction = "yeh-hummer"`; `mfda-jobscript` validates both.
 
 Run directory:
 ```

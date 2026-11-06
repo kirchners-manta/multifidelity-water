@@ -34,7 +34,7 @@ BASE = [
     "2",
     "--params",
     "lj-q",
-    "--noise-stds",
+    "--likelihood-widths",
     "0.01",
     "0.02",
     "0.03",
@@ -153,7 +153,7 @@ def test_restart_skips_finished_chains_and_refuses_complete_run(
         ["--mcburnin", "3"],
         ["--params", "lj"],
         ["--chains", "2"],
-        ["--noise-stds", "0.01", "0.02", "0.04"],
+        ["--likelihood-widths", "0.01", "0.02", "0.04"],
         ["--fs-correction", "none"],
     ],
 )
@@ -272,7 +272,7 @@ def test_two_chains(tmp_path: Path) -> None:
 
 
 def test_single_subchain_value_is_broadcast() -> None:
-    likelihood = ["--noise-stds", "0", "0", "0", "--fs-correction", "none"]
+    likelihood = ["--likelihood-widths", "0", "0", "0", "--fs-correction", "none"]
     args = parser().parse_args(
         ["--models", "3", "--molecules", "64", "32", "16", "--mcsubchainlength", "4"]
         + likelihood
@@ -333,14 +333,14 @@ def test_manifest_stores_likelihood_settings(tmp_path: Path) -> None:
     _, settings, _ = run_manager.prepare_run(make_args(wd))
     stored = json.loads((wd / "manifest.json").read_text())
     assert stored["algorithm_version"] == 4
-    assert stored["noise_stds"] == [0.01, 0.02, 0.03]
+    assert stored["likelihood_widths"] == [0.01, 0.02, 0.03]
     assert stored["fs_correction"] == "yeh-hummer"
     assert stored["fs_corrections"] == [
         yeh_hummer_correction(n, False) for n in (64, 32, 16)
     ]
     # round trip: the config rebuilt from the manifest carries the stored values
     cfg = run_manager.config_from_settings(stored)
-    assert cfg.noise_stds == (0.01, 0.02, 0.03)
+    assert cfg.likelihood_widths == (0.01, 0.02, 0.03)
     assert cfg.fs_corrections == tuple(stored["fs_corrections"])
     assert (
         cfg.fs_corrections == run_manager.config_from_settings(settings).fs_corrections
@@ -358,13 +358,15 @@ def test_restart_refused_if_resolved_correction_differs(tmp_path: Path) -> None:
 
 def test_missing_likelihood_options_are_errors(tmp_path: Path) -> None:
     base = ["--molecules", "64", "32"]
-    with pytest.raises(ValueError, match="--noise-stds is required"):
+    with pytest.raises(ValueError, match="--likelihood-widths is required"):
         build_config(parser().parse_args(base + ["--fs-correction", "none"]))
     with pytest.raises(ValueError, match="--fs-correction is required"):
-        build_config(parser().parse_args(base + ["--noise-stds", "0", "0"]))
+        build_config(parser().parse_args(base + ["--likelihood-widths", "0", "0"]))
     with pytest.raises(ValueError, match="one value per level"):
         build_config(
-            parser().parse_args(base + ["--noise-stds", "0", "--fs-correction", "none"])
+            parser().parse_args(
+                base + ["--likelihood-widths", "0", "--fs-correction", "none"]
+            )
         )
 
 
@@ -373,9 +375,9 @@ def test_toml_options(tmp_path: Path) -> None:
 
     cfg = tmp_path / "run.toml"
     cfg.write_text(
-        'molecules = [64, 32]\nnoise-stds = [0.0, 0.05]\nfs-correction = "none"\n'
+        'molecules = [64, 32]\nlikelihood-widths = [0.0, 0.05]\nfs-correction = "none"\n'
     )
     args = parse_args(parser(), ["-a", "markov-chain", "-c", str(cfg)])
     config = build_config(args)
-    assert config.noise_stds == (0.0, 0.05)
+    assert config.likelihood_widths == (0.0, 0.05)
     assert config.fs_corrections == (0.0, 0.0)
