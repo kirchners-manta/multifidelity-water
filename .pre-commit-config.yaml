@@ -20,23 +20,14 @@ repos:
       - id: setup-cfg-fmt
         args: [--include-version-classifiers, --min-py-version, "3.12", --max-py-version, "3.14"]
 
-  - repo: https://github.com/asottile/pyupgrade
-    rev: v3.21.2
+  # ruff replaces pyupgrade (UP rules), isort (I rules) and black (ruff-format);
+  # rule selection and target version live in pyproject.toml
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.5
     hooks:
-      - id: pyupgrade
-        args: [--py312-plus]
-
-  - repo: https://github.com/pycqa/isort
-    rev: 6.0.0
-    hooks:
-      - id: isort
-        name: isort (python)
-        args: ["--profile", "black", "--filter-files"]
-
-  - repo: https://github.com/psf/black
-    rev: 25.1.0
-    hooks:
-      - id: black
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.15.0
