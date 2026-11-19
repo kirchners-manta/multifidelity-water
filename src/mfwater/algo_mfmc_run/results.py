@@ -20,7 +20,7 @@ import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any
 
 import h5py
 import numpy as np
@@ -36,7 +36,7 @@ D_SCALE = 1000.0
 D_UNIT = "1e-12 m^2/s"
 COST_UNIT = "core-s"
 
-FloatArray: TypeAlias = npt.NDArray[np.float64]
+type FloatArray = npt.NDArray[np.float64]
 
 
 @dataclass(frozen=True)

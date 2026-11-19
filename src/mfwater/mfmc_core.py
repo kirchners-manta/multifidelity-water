@@ -28,15 +28,14 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Sequence
-from typing import TypeAlias
 
 import numpy as np
 import numpy.typing as npt
 
 # Explicit aliases so that mypy also accepts them when run without NumPy installed
 # (the pre-commit mypy hook uses an isolated environment).
-FloatArray: TypeAlias = npt.NDArray[np.float64]
-IntArray: TypeAlias = npt.NDArray[np.int64]
+type FloatArray = npt.NDArray[np.float64]
+type IntArray = npt.NDArray[np.int64]
 
 # Tolerance for the requirement rho[0] == 1. Legacy files store rho[0] as exactly 1.0, so
 # this only absorbs harmless rounding of values that went through other code paths.
