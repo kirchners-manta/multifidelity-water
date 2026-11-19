@@ -46,7 +46,6 @@ def test_entrypoint_parametrized(tmp_path: Path, algo: str, args: str) -> None:
             pytest.skip(f"external programs not in PATH: {', '.join(missing)}")
 
     with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-
         # define input and output file paths
         data_dir = Path(__file__).parent / "data"
         output_file = tmp_path / f"test_{algo}_out.hdf5"

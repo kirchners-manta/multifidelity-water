@@ -103,7 +103,7 @@ def models_by_rho(models: h5py.Group) -> list[tuple[str, h5py.Group]]:
     return sorted(
         items,
         key=lambda it: (
-            -float(it[1].attrs["correlation"]) ** 2,
+            -(float(it[1].attrs["correlation"]) ** 2),
             -int(it[1].attrs["n_molecules"]),
             _name_number(it[0]),
         ),

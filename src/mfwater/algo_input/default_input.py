@@ -98,7 +98,6 @@ def build_default_input(args: argparse.Namespace) -> int:
         )
 
     with h5py.File(Path(args.output), "w") as f:
-
         # create a group for the models with an attribute being the number of models
         models = f.create_group("models")
         models.attrs["n_models"] = args.n_models

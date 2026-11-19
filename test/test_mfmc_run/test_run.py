@@ -127,9 +127,10 @@ def test_deterministic_across_runs(tmp_path: Path) -> None:
     """Same seed, same results (the dummy is deterministic)."""
     for name in ("a", "b"):
         console_entry_point(argv(tmp_path / name, budgets=("6",)))
-    with h5py.File(tmp_path / "a" / "performance_6.hdf5") as fa, h5py.File(
-        tmp_path / "b" / "performance_6.hdf5"
-    ) as fb:
+    with (
+        h5py.File(tmp_path / "a" / "performance_6.hdf5") as fa,
+        h5py.File(tmp_path / "b" / "performance_6.hdf5") as fb,
+    ):
         assert (
             fa["models"].attrs["mfmc_estimator"] == fb["models"].attrs["mfmc_estimator"]
         )
@@ -203,9 +204,10 @@ def test_restart_after_interruption(
     assert len(list((wd / "cache").glob("N*/*/result.json"))) > n_results
     # a second complete run from scratch gives the same estimator
     console_entry_point(argv(tmp_path / "fresh"))
-    with h5py.File(wd / "performance_20.hdf5") as fa, h5py.File(
-        tmp_path / "fresh" / "performance_20.hdf5"
-    ) as fb:
+    with (
+        h5py.File(wd / "performance_20.hdf5") as fa,
+        h5py.File(tmp_path / "fresh" / "performance_20.hdf5") as fb,
+    ):
         assert (
             fa["models"].attrs["mfmc_estimator"] == fb["models"].attrs["mfmc_estimator"]
         )
@@ -225,9 +227,10 @@ def test_restart_in_the_middle_of_a_phase(tmp_path: Path) -> None:
         dest.mkdir(parents=True)
         (dest / "result.json").write_bytes(r.read_bytes())
     assert console_entry_point(argv(wd2)) == 0
-    with h5py.File(wd / "calibration.hdf5") as fa, h5py.File(
-        wd2 / "calibration.hdf5"
-    ) as fb:
+    with (
+        h5py.File(wd / "calibration.hdf5") as fa,
+        h5py.File(wd2 / "calibration.hdf5") as fb,
+    ):
         assert np.array_equal(
             fa["models/model_1/diffusion_coeff"][:],
             fb["models/model_1/diffusion_coeff"][:],

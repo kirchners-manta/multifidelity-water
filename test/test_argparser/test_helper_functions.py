@@ -30,7 +30,6 @@ def test_file_or_dir(tmp_path: Path) -> None:
     """
 
     with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-
         # Test file
         # create a temporary file
         (tmp_path / "test.txt").write_text("This is a test file.")

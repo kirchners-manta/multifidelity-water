@@ -543,10 +543,10 @@ def setup_lammps_input(
             for k, line in enumerate(packinp):
                 if "inside box" in line:
                     packinp[k] = (
-                        f"inside box 0.500000 0.500000 0.500000 {lx-0.5:.6f} {ly-0.5:.6f} {lz-0.5:.6f}\n"
+                        f"inside box 0.500000 0.500000 0.500000 {lx - 0.5:.6f} {ly - 0.5:.6f} {lz - 0.5:.6f}\n"
                     )
                     break
-            packinp.append(f"seed {seeds[0][j-1]}\n")
+            packinp.append(f"seed {seeds[0][j - 1]}\n")
             pack.write_text("".join(packinp), encoding="utf-8")
 
             # packmol reads its input from stdin
@@ -573,14 +573,14 @@ def setup_lammps_input(
             for k, line in enumerate(lmpinp):
                 if "VAR_EPS" in line:
                     lmpinp[k] = (
-                        f"pair_coeff    2    2     {lj[0][j-1]:.6f}     {lj[1][j-1]:.6f}  # Ow-Ow\n"
+                        f"pair_coeff    2    2     {lj[0][j - 1]:.6f}     {lj[1][j - 1]:.6f}  # Ow-Ow\n"
                     )
                 if "VAR_q_H" in line:
-                    lmpinp[k] = f"set type 1 charge {charges[1][j-1]:11.8f}  # Hw\n"
+                    lmpinp[k] = f"set type 1 charge {charges[1][j - 1]:11.8f}  # Hw\n"
                 if "VAR_q_O" in line:
-                    lmpinp[k] = f"set type 2 charge {charges[0][j-1]:11.8f}  # Ow\n"
+                    lmpinp[k] = f"set type 2 charge {charges[0][j - 1]:11.8f}  # Ow\n"
                 if "velocity all create" in line:
-                    lmpinp[k] = f"velocity all create ${{vTK}} {seeds[1][j-1]}\n"
+                    lmpinp[k] = f"velocity all create ${{vTK}} {seeds[1][j - 1]}\n"
                     break
             lmp_path.write_text("".join(lmpinp), encoding="utf-8")
 

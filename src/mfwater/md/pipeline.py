@@ -148,9 +148,10 @@ def _run(
     err_path = cwd / f"{log_name}.err"
     stdin_handle = open(stdin_file, encoding="utf-8") if stdin_file else None
     try:
-        with open(out_path, "w", encoding="utf-8") as out, open(
-            err_path, "w", encoding="utf-8"
-        ) as err:
+        with (
+            open(out_path, "w", encoding="utf-8") as out,
+            open(err_path, "w", encoding="utf-8") as err,
+        ):
             subprocess.run(
                 list(args),
                 cwd=cwd,

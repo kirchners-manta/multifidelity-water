@@ -595,9 +595,9 @@ def test_resume_input_equilibration_stage(tmp_path: Path) -> None:
     assert text.index(f"run {EQ} upto") < text.index(f"run {PROD_END} upto")
     assert "write_data data.after_eq.lmp" in text
     for forbidden in ("minimize", "velocity all create", "reset_timestep", "read_data"):
-        assert not [
-            ln for ln in text.splitlines() if ln.startswith(forbidden)
-        ], forbidden
+        assert not [ln for ln in text.splitlines() if ln.startswith(forbidden)], (
+            forbidden
+        )
     # every re-specified setting is the one of the template
     template = md_pipeline.MFDA_INPUT_TEMPLATE.read_text().splitlines()
     for ln in text.splitlines():

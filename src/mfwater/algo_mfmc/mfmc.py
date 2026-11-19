@@ -125,7 +125,7 @@ def multifidelity_monte_carlo(args: argparse.Namespace) -> int:
                 f"{name:<8}  {mod.attrs['n_molecules']:7d}  {mod.attrs['n_evals_initial']:12d}  {mod.attrs['mean_initial']:12.6f}  {mod.attrs['std_initial']:12.6f}  {mod.attrs['n_evals']:12d}  {mod.attrs['mean']:12.6f}"
             )
         print("-" * 87)
-        print(f"{'MFMC Estimator'} {' '*17} {mfmc_estim:12.6f}  {mfmc_error:12.6f}")
+        print(f"{'MFMC Estimator'} {' ' * 17} {mfmc_estim:12.6f}  {mfmc_error:12.6f}")
         print(f"RMSE cost basis: {rmse_cost}; gamma = {gammas[rmse_cost]:.6f}")
 
         f.attrs["last_algo"] = args.algorithm
